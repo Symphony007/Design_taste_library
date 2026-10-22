@@ -12,7 +12,10 @@ A personal design-reference library. Paste a URL and capture the full website as
 │   └── index.html         # Frontend static entry point
 ├── src/
 │   ├── capture/           # Website capture orchestration (Playwright)
-│   │   ├── index.ts       # Capture logic placeholder
+│   │   ├── config.ts      # Tunable capture constants (viewports, timeouts, limits)
+│   │   ├── cookie-dismiss.ts # Best-effort consent banner dismissal
+│   │   ├── index.ts       # Core captureUrl pipeline
+│   │   ├── cli.ts         # Direct CLI runner
 │   │   └── verify-playwright.ts # One-off Chromium check script
 │   ├── db/
 │   │   └── index.ts       # SQLite setup & auto-migration (better-sqlite3)
@@ -57,6 +60,12 @@ A personal design-reference library. Paste a URL and capture the full website as
   ```bash
   npm run start
   ```
+
+- **Capture a website via CLI**:
+  ```bash
+  npm run capture -- https://example.com
+  ```
+  Saves ordered step screenshots in `data/screenshots/<id>/steps/` and full page capture in `data/screenshots/<id>/full.png`.
 
 - **Verify Playwright browser launch**:
   ```bash

@@ -8,6 +8,7 @@
     "dev": "tsx watch src/server/index.ts",
     "build": "tsc",
     "start": "node dist/server/index.js",
+    "capture": "tsx src/capture/cli.ts",
     "check:playwright": "tsx src/capture/verify-playwright.ts"
   },
   "dependencies": {
