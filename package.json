@@ -5,6 +5,7 @@
   "description": "Taste - A personal design-reference library",
   "type": "module",
   "scripts": {
+    "dev:all": "concurrently -k -n \"api,web\" -c \"blue,magenta\" --prefix \"[{name}]\" \"npm run dev\" \"npm --prefix web run dev\"",
     "dev": "tsx watch src/server/index.ts",
     "build": "tsc",
     "start": "node dist/server/index.js",
@@ -23,6 +24,7 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.4",
+    "concurrently": "^10.0.6",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3"
   }

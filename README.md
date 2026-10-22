@@ -89,14 +89,29 @@ Taste is built as a local-first application with a decoupled backend and React f
 
 ## Running the Servers
 
-Start both servers concurrently during development:
+### Development (Single Command — Recommended)
 
-1. **Backend Server** (runs on `http://localhost:3000`):
+Run both the Express backend and the Vite frontend concurrently with color-coded, labeled output:
+
+```bash
+npm run dev:all
+```
+
+- **Backend API**: `http://localhost:3000` (`[api]`)
+- **Frontend App**: `http://localhost:5173` (`[web]`)
+
+Pressing `Ctrl+C` will cleanly terminate both servers.
+
+### Alternative (Two-Terminal Fallback)
+
+If you prefer running each server in its own terminal window:
+
+1. **Terminal 1 — Backend**:
    ```bash
    npm run dev
    ```
 
-2. **Frontend App** (runs on `http://localhost:5173`):
+2. **Terminal 2 — Frontend**:
    ```bash
    cd web
    npm run dev
