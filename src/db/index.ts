@@ -30,6 +30,11 @@ export function initDb(): void {
       steps_dir TEXT NOT NULL,
       captured_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
 }
 

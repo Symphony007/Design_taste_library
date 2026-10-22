@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { captureUrl, type CaptureResult } from "../capture/index.js";
+import { isSafeUrl } from "../capture/url-safety.js";
 import {
   createEntry,
   getEntryByUrl,
@@ -28,30 +29,15 @@ let isCapturing = false;
 
 /**
  * Normalizes a URL for consistent storage and duplicate checking.
+ * Validates protocol (http/https only) and rejects private network/localhost addresses.
  */
 export function normalizeUrl(rawUrl: string): string {
-  const trimmed = rawUrl.trim();
-  if (!trimmed) {
-    throw new ServiceError("URL cannot be empty.", 400);
+  const check = isSafeUrl(rawUrl);
+  if (!check.safe || !check.url) {
+    throw new ServiceError(check.reason || "Invalid or unsafe URL provided.", 400);
   }
 
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    throw new ServiceError(
-      `Invalid URL format: "${trimmed}". Please provide a full URL with http:// or https://`,
-      400
-    );
-  }
-
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new ServiceError(
-      `Unsupported protocol "${parsed.protocol}". URL must start with http:// or https://`,
-      400
-    );
-  }
-
+  const parsed = check.url;
   // Strip trailing slashes from path for consistency
   if (parsed.pathname.length > 1 && parsed.pathname.endsWith("/")) {
     parsed.pathname = parsed.pathname.slice(0, -1);

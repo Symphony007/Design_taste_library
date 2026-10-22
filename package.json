@@ -12,11 +12,14 @@
     "check:playwright": "tsx src/capture/verify-playwright.ts"
   },
   "dependencies": {
+    "archiver": "^8.0.0",
     "better-sqlite3": "^13.0.3",
     "express": "^4.21.2",
-    "playwright": "^1.50.1"
+    "playwright": "^1.50.1",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
+    "@types/archiver": "^8.0.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.4",

@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@theme {
+  /* Warm archival palette */
+  --color-surface: #FBFBF9;
+  --color-surface-elevated: #FFFFFF;
+  --color-ink: #141413;
+  --color-ink-secondary: #666663;
+  --color-ink-tertiary: #9B9B96;
+  --color-border: #E5E5DF;
+  --color-border-strong: #CCCCC5;
+  --color-accent: #C2410C;
+  --color-accent-light: #FFF7ED;
+  --color-danger: #991B1B;
+  --color-danger-light: #FEF2F2;
+
+  /* Type scale — Inter loaded via index.html */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+}
+
+/* Global resets */
+html {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+}
+
+/* Screenshot images should never distort */
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Quiet scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 3px;
+}

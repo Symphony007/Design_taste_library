@@ -12,6 +12,9 @@ import {
   captureAndCreateEntry,
   ServiceError,
 } from "../services/capture-service.js";
+import { getDirectionNotes, setDirectionNotes } from "../db/settings.js";
+import { createExportArchive } from "../services/export-service.js";
+import { generateAiSuggestions, isAiTaggerConfigured } from "../services/ai-tagger-service.js";
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -202,6 +205,97 @@ app.delete("/api/entries/:id", (req: Request, res: Response) => {
     res.json({ ok: true, deletedId: id });
   } catch (err: any) {
     res.status(500).json({ error: `Failed to delete entry '${id}': ${err.message || err}` });
+  }
+});
+
+/**
+ * GET /api/settings/direction-notes
+ */
+app.get("/api/settings/direction-notes", (_req: Request, res: Response) => {
+  res.json({ directionNotes: getDirectionNotes() });
+});
+
+/**
+ * PATCH /api/settings/direction-notes
+ */
+app.patch("/api/settings/direction-notes", (req: Request, res: Response) => {
+  const { directionNotes } = req.body || {};
+  if (typeof directionNotes !== "string") {
+    res.status(400).json({ error: "'directionNotes' string is required." });
+    return;
+  }
+  setDirectionNotes(directionNotes.trim());
+  res.json({ directionNotes: getDirectionNotes() });
+});
+
+/**
+ * POST /api/export
+ * Body: { scope?: 'all' | 'filtered' | 'selected', category?: string, tag?: string, entryIds?: string[], directionNotes?: string }
+ */
+app.post("/api/export", async (req: Request, res: Response) => {
+  try {
+    const { scope = "all", category, tag, entryIds, directionNotes } = req.body || {};
+    const { archive, warnings } = await createExportArchive({
+      scope,
+      category,
+      tag,
+      entryIds,
+      directionNotes,
+    });
+
+    res.attachment("taste-skill.zip");
+    res.setHeader("Content-Type", "application/zip");
+    if (warnings.length > 0) {
+      res.setHeader("X-Export-Warnings", encodeURIComponent(JSON.stringify(warnings)));
+    }
+
+    archive.on("error", (err: any) => {
+      console.error("Export archive error:", err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Failed to generate zip archive." });
+      }
+    });
+
+    archive.pipe(res);
+    await archive.finalize();
+  } catch (err: any) {
+    console.error("Export error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message || "Failed to generate export." });
+    }
+  }
+});
+
+/**
+ * GET /api/ai/status
+ */
+app.get("/api/ai/status", (_req: Request, res: Response) => {
+  res.json({ configured: isAiTaggerConfigured() });
+});
+
+/**
+ * POST /api/entries/:id/ai-suggest
+ */
+app.post("/api/entries/:id/ai-suggest", async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+
+  if (!isAiTaggerConfigured()) {
+    res.json({
+      configured: false,
+      error: "Anthropic API key is not configured. Set ANTHROPIC_API_KEY to enable AI tag suggestions.",
+    });
+    return;
+  }
+
+  try {
+    const suggestions = await generateAiSuggestions(id);
+    res.json(suggestions);
+  } catch (err: any) {
+    console.error(`AI tag suggestion failed for entry '${id}':`, err.message || err);
+    res.status(500).json({
+      configured: true,
+      error: err.message || "Failed to generate AI tag suggestions.",
+    });
   }
 });
 
