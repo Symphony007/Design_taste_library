@@ -18,13 +18,15 @@ import { generateAiSuggestions, isAiTaggerConfigured } from "../services/ai-tagg
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-const PUBLIC_DIR = path.resolve(process.cwd(), "public");
+const WEB_DIST_DIR = path.resolve(process.cwd(), "web", "dist");
 const SCREENSHOTS_DIR = path.resolve(process.cwd(), "data", "screenshots");
 
 app.use(express.json());
 
-// Serve static frontend files from public/
-app.use(express.static(PUBLIC_DIR));
+// Serve production frontend bundle from web/dist if built
+if (fs.existsSync(WEB_DIST_DIR)) {
+  app.use(express.static(WEB_DIST_DIR));
+}
 
 // Serve screenshots directory statically so images are reachable via /screenshots/...
 app.use("/screenshots", express.static(SCREENSHOTS_DIR));
