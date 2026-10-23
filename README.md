@@ -186,32 +186,9 @@ taste-skill.zip
 
 ---
 
-## Installing the Exported Skill into an Agent
+## Using the Exported Skill
 
-### Claude Desktop App
-1. Ensure code execution and skill capabilities are enabled in your Claude settings.
-2. In the Claude Desktop sidebar, open **Customize** (or **Skills**).
-3. Click **Upload a skill** and select the downloaded `taste-skill.zip`.
-4. Toggle the skill **On** in your skill list.
-
-### Claude Code CLI
-Extract directly into your Claude skills directory:
-```bash
-mkdir -p ~/.claude/skills
-unzip taste-skill.zip -d ~/.claude/skills
-```
-
-### Google Antigravity / Gemini CLI
-Extract to global customizations:
-```bash
-mkdir -p ~/.gemini/config/skills
-unzip taste-skill.zip -d ~/.gemini/config/skills
-```
-Or project-level:
-```bash
-mkdir -p .agents/skills
-unzip taste-skill.zip -d .agents/skills
-```
+To use this skill, add the downloaded ZIP in the Claude app's skills settings. The archive contains the `designer-taste-library` skill folder with `SKILL.md`, references, and sliced visual assets.
 
 ---
 

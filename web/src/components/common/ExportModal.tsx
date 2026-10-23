@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Download, Loader2, FolderArchive, Terminal, Monitor, Sparkles, Copy, Check } from "lucide-react";
+import { Download, Loader2, FolderArchive, Info } from "lucide-react";
 import Modal from "./Modal";
 import {
   fetchDirectionNotes,
@@ -30,8 +30,6 @@ export default function ExportModal({
   const [isLoadingNotes, setIsLoadingNotes] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"desktop" | "code" | "antigravity">("desktop");
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -45,12 +43,6 @@ export default function ExportModal({
         .finally(() => setIsLoadingNotes(false));
     }
   }, [open, selectedCount]);
-
-  function copyToClipboard(text: string, key: string) {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(key);
-    setTimeout(() => setCopiedKey(null), 2000);
-  }
 
   async function handleExport() {
     setIsExporting(true);
@@ -80,7 +72,7 @@ export default function ExportModal({
 
   return (
     <Modal open={open} onClose={isExporting ? () => {} : onClose}>
-      <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-1">
+      <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center gap-2.5 border-b border-border pb-3">
           <FolderArchive size={18} className="text-accent" />
@@ -156,122 +148,12 @@ export default function ExportModal({
           )}
         </div>
 
-        {/* Installation Instructions per Agent */}
-        <div className="space-y-2 pt-2 border-t border-border">
-          <label className="block text-xs font-mono uppercase text-ink-tertiary tracking-wider">
-            Install Instructions per Agent
-          </label>
-
-          <div className="flex items-center gap-1 border-b border-border text-xs">
-            <button
-              type="button"
-              onClick={() => setActiveTab("desktop")}
-              className={`px-3 py-1.5 border-b-2 font-medium flex items-center gap-1.5 transition-colors ${
-                activeTab === "desktop"
-                  ? "border-accent text-ink"
-                  : "border-transparent text-ink-secondary hover:text-ink"
-              }`}
-            >
-              <Monitor size={13} />
-              <span>Claude App</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("code")}
-              className={`px-3 py-1.5 border-b-2 font-medium flex items-center gap-1.5 transition-colors ${
-                activeTab === "code"
-                  ? "border-accent text-ink"
-                  : "border-transparent text-ink-secondary hover:text-ink"
-              }`}
-            >
-              <Terminal size={13} />
-              <span>Claude Code</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("antigravity")}
-              className={`px-3 py-1.5 border-b-2 font-medium flex items-center gap-1.5 transition-colors ${
-                activeTab === "antigravity"
-                  ? "border-accent text-ink"
-                  : "border-transparent text-ink-secondary hover:text-ink"
-              }`}
-            >
-              <Sparkles size={13} />
-              <span>Antigravity / Gemini</span>
-            </button>
-          </div>
-
-          <div className="p-3 bg-surface border border-border rounded-sm text-xs text-ink-secondary space-y-2">
-            {activeTab === "desktop" && (
-              <div className="space-y-1.5 text-[11px] leading-relaxed">
-                <p className="font-medium text-ink">Install in Claude Desktop App:</p>
-                <ol className="list-decimal list-inside space-y-1 text-ink-secondary">
-                  <li>Ensure code execution is enabled in your Claude settings.</li>
-                  <li>In the Claude Desktop sidebar, open <strong>Customize</strong> (or <strong>Skills</strong>).</li>
-                  <li>Click <strong>Upload a skill</strong> and select the downloaded <code className="font-mono text-ink bg-surface-elevated px-1 py-0.5 border border-border rounded">taste-skill.zip</code>.</li>
-                  <li>Toggle the skill <strong>On</strong> in your skill list. The ZIP root folder contains the required <code className="font-mono text-ink">designer-taste-library/SKILL.md</code>.</li>
-                </ol>
-              </div>
-            )}
-
-            {activeTab === "code" && (
-              <div className="space-y-2 text-[11px] leading-relaxed">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-ink">Install for Claude Code CLI:</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      copyToClipboard(
-                        "mkdir -p ~/.claude/skills && unzip taste-skill.zip -d ~/.claude/skills",
-                        "code"
-                      )
-                    }
-                    className="flex items-center gap-1 text-[10px] text-accent hover:underline font-mono"
-                  >
-                    {copiedKey === "code" ? <Check size={11} /> : <Copy size={11} />}
-                    <span>{copiedKey === "code" ? "Copied" : "Copy"}</span>
-                  </button>
-                </div>
-                <pre className="font-mono text-[11px] p-2 bg-surface-elevated border border-border rounded text-ink overflow-x-auto">
-mkdir -p ~/.claude/skills
-unzip taste-skill.zip -d ~/.claude/skills
-                </pre>
-                <p className="text-ink-tertiary">
-                  Unpacks directly into <code className="font-mono text-ink">~/.claude/skills/designer-taste-library/</code>.
-                </p>
-              </div>
-            )}
-
-            {activeTab === "antigravity" && (
-              <div className="space-y-2 text-[11px] leading-relaxed">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-ink">Install for Google Antigravity / Gemini CLI:</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      copyToClipboard(
-                        "mkdir -p ~/.gemini/config/skills && unzip taste-skill.zip -d ~/.gemini/config/skills",
-                        "antigravity"
-                      )
-                    }
-                    className="flex items-center gap-1 text-[10px] text-accent hover:underline font-mono"
-                  >
-                    {copiedKey === "antigravity" ? <Check size={11} /> : <Copy size={11} />}
-                    <span>{copiedKey === "antigravity" ? "Copied" : "Copy"}</span>
-                  </button>
-                </div>
-                <pre className="font-mono text-[11px] p-2 bg-surface-elevated border border-border rounded text-ink overflow-x-auto">
-# Global install
-mkdir -p ~/.gemini/config/skills
-unzip taste-skill.zip -d ~/.gemini/config/skills
-
-# Or project-level
-mkdir -p .agents/skills
-unzip taste-skill.zip -d .agents/skills
-                </pre>
-              </div>
-            )}
-          </div>
+        {/* General usage hint */}
+        <div className="p-3 bg-surface border border-border rounded-sm flex items-start gap-2.5 text-xs text-ink-secondary">
+          <Info size={15} className="text-accent shrink-0 mt-0.5" />
+          <p className="text-[11px] leading-relaxed">
+            To use this skill, add the downloaded ZIP in the Claude app's skills settings. The ZIP contains the required <code className="font-mono text-ink bg-surface-elevated px-1 py-0.5 border border-border rounded">designer-taste-library/</code> root folder.
+          </p>
         </div>
 
         {/* Error message */}
