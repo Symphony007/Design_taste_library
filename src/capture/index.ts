@@ -1,6 +1,7 @@
 import { chromium, type Browser, type Page } from "playwright";
 import fs from "node:fs";
 import path from "node:path";
+import sharp from "sharp";
 import { CAPTURE_CONFIG, type CaptureConfig } from "./config.js";
 import { dismissCookieBanner } from "./cookie-dismiss.js";
 
@@ -20,6 +21,7 @@ export interface CaptureResult {
   stepPaths: string[];
   totalHeight: number;
   isCapped: boolean;
+  fullPageUnreliable: boolean;
   capturedAt: string;
 }
 
@@ -259,6 +261,30 @@ export async function captureUrl(
 
     notify(`Full-page screenshot saved: ${fullPagePath}`);
 
+    // Check full-page reliability against scroll-lock thresholds
+    let fullPageImageHeight = totalHeight;
+    try {
+      const meta = await sharp(fullPagePath).metadata();
+      if (typeof meta.height === "number") {
+        fullPageImageHeight = meta.height;
+      }
+    } catch {
+      // Fallback to totalHeight if metadata read fails
+    }
+
+    const maxSingleViewportHeight =
+      cfg.VIEWPORT.height * cfg.SCROLL_LOCK_DETECTION.MAX_SINGLE_VIEWPORT_FACTOR;
+
+    const fullPageUnreliable =
+      stepPaths.length >= cfg.SCROLL_LOCK_DETECTION.MIN_STEPS_FOR_UNRELIABLE &&
+      (totalHeight <= maxSingleViewportHeight || fullPageImageHeight <= maxSingleViewportHeight);
+
+    if (fullPageUnreliable) {
+      notify(
+        `Scroll-lock detected: site document/image height is ${fullPageImageHeight}px across ${stepPaths.length} steps. Full page flagged as unreliable.`
+      );
+    }
+
     return {
       captureId,
       url: targetUrl,
@@ -268,6 +294,7 @@ export async function captureUrl(
       stepPaths,
       totalHeight,
       isCapped,
+      fullPageUnreliable,
       capturedAt: new Date().toISOString(),
     };
   } finally {

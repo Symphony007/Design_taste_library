@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Trash2, Loader2, Calendar } from "lucide-react";
+import { ArrowLeft, ExternalLink, Trash2, Loader2, Calendar, Info } from "lucide-react";
 import Header from "../components/common/Header";
 import Modal from "../components/common/Modal";
 import ViewToggle from "../components/entry-detail/ViewToggle";
@@ -24,6 +24,13 @@ export default function EntryDetailPage() {
     deleteEntry,
     isDeleting,
   } = useEntry(id);
+
+  // Default to Steps view if this site locks page scrolling
+  useEffect(() => {
+    if (entry?.full_page_unreliable) {
+      setView("steps");
+    }
+  }, [entry?.full_page_unreliable]);
 
   async function handleDeleteConfirm() {
     try {
@@ -65,6 +72,7 @@ export default function EntryDetailPage() {
                 view={view}
                 onViewChange={setView}
                 stepCount={entry.step_images?.length}
+                fullPageDisabled={Boolean(entry.full_page_unreliable)}
               />
 
               <button
@@ -128,7 +136,13 @@ export default function EntryDetailPage() {
             {/* Layout: Viewer on left/main, Metadata editor alongside or below */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               {/* Screenshots display */}
-              <div className="lg:col-span-8 order-2 lg:order-1">
+              <div className="lg:col-span-8 order-2 lg:order-1 space-y-4">
+                {entry.full_page_unreliable && (
+                  <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300 text-xs">
+                    <Info size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
+                    <span>This site locks page scrolling, so Steps is the accurate view.</span>
+                  </div>
+                )}
                 <ScreenshotViewer
                   view={view}
                   fullPageUrl={entry.full_page_url}

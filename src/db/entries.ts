@@ -10,6 +10,7 @@ export interface Entry {
   full_page_path: string;
   steps_dir: string;
   captured_at: string;
+  full_page_unreliable: boolean;
 }
 
 interface RawDbEntry {
@@ -22,6 +23,7 @@ interface RawDbEntry {
   full_page_path: string;
   steps_dir: string;
   captured_at: string;
+  full_page_unreliable: number;
 }
 
 export interface CreateEntryInput {
@@ -34,6 +36,7 @@ export interface CreateEntryInput {
   full_page_path: string;
   steps_dir: string;
   captured_at?: string;
+  full_page_unreliable?: boolean;
 }
 
 export interface UpdateEntryInput {
@@ -71,6 +74,7 @@ function toEntry(row: RawDbEntry): Entry {
     full_page_path: row.full_page_path,
     steps_dir: row.steps_dir,
     captured_at: row.captured_at,
+    full_page_unreliable: Boolean(row.full_page_unreliable),
   };
 }
 
@@ -80,10 +84,11 @@ function toEntry(row: RawDbEntry): Entry {
 export function createEntry(input: CreateEntryInput): Entry {
   const tagsJson = JSON.stringify(input.tags || []);
   const capturedAt = input.captured_at || new Date().toISOString();
+  const fullPageUnreliable = input.full_page_unreliable ? 1 : 0;
 
   const stmt = db.prepare(`
-    INSERT INTO entries (id, url, title, category, tags, notes, full_page_path, steps_dir, captured_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO entries (id, url, title, category, tags, notes, full_page_path, steps_dir, captured_at, full_page_unreliable)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -95,7 +100,8 @@ export function createEntry(input: CreateEntryInput): Entry {
     input.notes ?? null,
     input.full_page_path,
     input.steps_dir,
-    capturedAt
+    capturedAt,
+    fullPageUnreliable
   );
 
   return {
@@ -108,6 +114,7 @@ export function createEntry(input: CreateEntryInput): Entry {
     full_page_path: input.full_page_path,
     steps_dir: input.steps_dir,
     captured_at: capturedAt,
+    full_page_unreliable: Boolean(input.full_page_unreliable),
   };
 }
 

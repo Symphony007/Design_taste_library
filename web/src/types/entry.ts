@@ -12,9 +12,11 @@ export interface Entry {
   full_page_path: string;
   steps_dir: string;
   captured_at: string;
+  full_page_unreliable?: boolean;
   // Computed by the API layer
   full_page_url: string;
   steps_url: string;
+  thumbnail_url?: string;
   step_images?: string[];
 }
 

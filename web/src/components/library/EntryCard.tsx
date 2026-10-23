@@ -21,6 +21,12 @@ export default function EntryCard({
     hostname = entry.url;
   }
 
+  const thumbnailSrc =
+    entry.thumbnail_url ||
+    (entry.full_page_unreliable
+      ? entry.step_images?.[0] || `/screenshots/${entry.id}/steps/01.png`
+      : entry.full_page_url);
+
   return (
     <div
       className={`group relative block border rounded-sm overflow-hidden transition-all ${
@@ -55,7 +61,7 @@ export default function EntryCard({
         {/* Screenshot thumbnail */}
         <div className="aspect-video bg-border/30 overflow-hidden">
           <img
-            src={entry.full_page_url}
+            src={thumbnailSrc}
             alt={entry.title}
             loading="lazy"
             className="w-full h-full object-cover object-top"

@@ -7,6 +7,7 @@ import {
   getEntryById,
   listEntries,
   updateEntry,
+  type Entry,
 } from "../db/entries.js";
 import {
   captureAndCreateEntry,
@@ -36,6 +37,31 @@ app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+function formatEntry(entry: Entry) {
+  let thumbnailUrl = `/screenshots/${entry.id}/full.png`;
+  if (entry.full_page_unreliable) {
+    if (entry.steps_dir && fs.existsSync(entry.steps_dir)) {
+      try {
+        const files = fs.readdirSync(entry.steps_dir).filter((f) => f.endsWith(".png")).sort();
+        if (files.length > 0) {
+          thumbnailUrl = `/screenshots/${entry.id}/steps/${files[0]}`;
+        }
+      } catch {
+        thumbnailUrl = `/screenshots/${entry.id}/steps/01.png`;
+      }
+    } else {
+      thumbnailUrl = `/screenshots/${entry.id}/steps/01.png`;
+    }
+  }
+
+  return {
+    ...entry,
+    thumbnail_url: thumbnailUrl,
+    full_page_url: `/screenshots/${entry.id}/full.png`,
+    steps_url: `/screenshots/${entry.id}/steps`,
+  };
+}
+
 /**
  * POST /api/entries
  * Takes { url: string, force?: boolean, category?: string, tags?: string[], notes?: string }
@@ -58,11 +84,7 @@ app.post("/api/entries", async (req: Request, res: Response) => {
     });
 
     res.status(201).json({
-      entry: {
-        ...entry,
-        full_page_url: `/screenshots/${entry.id}/full.png`,
-        steps_url: `/screenshots/${entry.id}/steps`,
-      },
+      entry: formatEntry(entry),
     });
   } catch (err: any) {
     const statusCode = err instanceof ServiceError ? err.statusCode : 500;
@@ -84,11 +106,7 @@ app.get("/api/entries", (req: Request, res: Response) => {
 
   try {
     const entries = listEntries({ category, tag });
-    const formatted = entries.map((entry) => ({
-      ...entry,
-      full_page_url: `/screenshots/${entry.id}/full.png`,
-      steps_url: `/screenshots/${entry.id}/steps`,
-    }));
+    const formatted = entries.map(formatEntry);
 
     res.json({ entries: formatted });
   } catch (err: any) {
@@ -126,9 +144,7 @@ app.get("/api/entries/:id", (req: Request, res: Response) => {
 
     res.json({
       entry: {
-        ...entry,
-        full_page_url: `/screenshots/${entry.id}/full.png`,
-        steps_url: `/screenshots/${entry.id}/steps`,
+        ...formatEntry(entry),
         step_images: stepImages,
       },
     });
@@ -163,11 +179,7 @@ app.patch("/api/entries/:id", (req: Request, res: Response) => {
     }
 
     res.json({
-      entry: {
-        ...updated,
-        full_page_url: `/screenshots/${updated.id}/full.png`,
-        steps_url: `/screenshots/${updated.id}/steps`,
-      },
+      entry: formatEntry(updated),
     });
   } catch (err: any) {
     res.status(500).json({ error: `Failed to update entry '${id}': ${err.message || err}` });

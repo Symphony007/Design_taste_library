@@ -123,13 +123,14 @@ export async function captureAndCreateEntry(
         const { db } = await import("../db/index.js");
         db.prepare(`
           UPDATE entries
-          SET full_page_path = ?, steps_dir = ?, captured_at = ?, title = ?
+          SET full_page_path = ?, steps_dir = ?, captured_at = ?, title = ?, full_page_unreliable = ?
           WHERE id = ?
         `).run(
           captureResult.fullPagePath,
           captureResult.stepsDir,
           captureResult.capturedAt,
           finalTitle,
+          captureResult.fullPageUnreliable ? 1 : 0,
           existing.id
         );
 
@@ -139,6 +140,7 @@ export async function captureAndCreateEntry(
           full_page_path: captureResult.fullPagePath,
           steps_dir: captureResult.stepsDir,
           captured_at: captureResult.capturedAt,
+          full_page_unreliable: captureResult.fullPageUnreliable,
         };
       }
 
@@ -153,6 +155,7 @@ export async function captureAndCreateEntry(
         full_page_path: captureResult.fullPagePath,
         steps_dir: captureResult.stepsDir,
         captured_at: captureResult.capturedAt,
+        full_page_unreliable: captureResult.fullPageUnreliable,
       });
     } catch (dbErr: any) {
       // Database failure after successful capture: rollback files

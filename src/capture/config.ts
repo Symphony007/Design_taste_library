@@ -33,6 +33,14 @@ export const CAPTURE_CONFIG = {
 
   // Relative path where screenshots are stored
   OUTPUT_DIR: "data/screenshots",
+
+  // Thresholds for detecting scroll-locked / virtual-scrolled sites
+  SCROLL_LOCK_DETECTION: {
+    // If measured document or full-page height is <= viewport height * MAX_SINGLE_VIEWPORT_FACTOR (e.g. 900 * 1.25 = 1125px)
+    MAX_SINGLE_VIEWPORT_FACTOR: 1.25,
+    // Minimum number of stepped captures required to consider the site multi-viewport
+    MIN_STEPS_FOR_UNRELIABLE: 2,
+  },
 } as const;
 
 export type CaptureConfig = typeof CAPTURE_CONFIG;
