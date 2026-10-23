@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Download, Loader2, Info, FolderArchive } from "lucide-react";
+import { Download, Loader2, FolderArchive, Terminal, Monitor, Sparkles, Copy, Check } from "lucide-react";
 import Modal from "./Modal";
 import {
   fetchDirectionNotes,
@@ -12,66 +12,57 @@ interface ExportModalProps {
   open: boolean;
   onClose: () => void;
   totalCount: number;
-  filteredCount?: number;
   selectedCount?: number;
   selectedIds?: string[];
-  activeCategory?: string | null;
-  activeTag?: string | null;
-  initialScope?: "all" | "filtered" | "selected";
+  initialScope?: "all" | "selected";
 }
 
 export default function ExportModal({
   open,
   onClose,
   totalCount,
-  filteredCount = 0,
   selectedCount = 0,
   selectedIds = [],
-  activeCategory,
-  activeTag,
   initialScope = "all",
 }: ExportModalProps) {
-  const [scope, setScope] = useState<"all" | "filtered" | "selected">(initialScope);
+  const [scope, setScope] = useState<"all" | "selected">(initialScope);
   const [directionNotes, setDirectionNotes] = useState("");
   const [isLoadingNotes, setIsLoadingNotes] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"desktop" | "code" | "antigravity">("desktop");
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  // Initialize scope when modal opens
   useEffect(() => {
     if (open) {
-      if (selectedCount > 0) {
-        setScope("selected");
-      } else if (activeCategory || activeTag) {
-        setScope("filtered");
-      } else {
-        setScope("all");
-      }
+      setScope(selectedCount > 0 ? "selected" : "all");
       setError(null);
 
-      // Fetch direction notes
       setIsLoadingNotes(true);
       fetchDirectionNotes()
-        .then((notes) => setDirectionNotes(notes))
+        .then((notes) => setDirectionNotes(notes || ""))
         .catch(() => {})
         .finally(() => setIsLoadingNotes(false));
     }
-  }, [open, selectedCount, activeCategory, activeTag]);
+  }, [open, selectedCount]);
+
+  function copyToClipboard(text: string, key: string) {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
+  }
 
   async function handleExport() {
     setIsExporting(true);
     setError(null);
 
     try {
-      // Save direction notes if changed
       if (directionNotes.trim()) {
         await saveDirectionNotes(directionNotes.trim()).catch(() => {});
       }
 
       const options: ExportOptions = {
         scope,
-        category: scope === "filtered" ? activeCategory || undefined : undefined,
-        tag: scope === "filtered" ? activeTag || undefined : undefined,
         entryIds: scope === "selected" ? selectedIds : undefined,
         directionNotes: directionNotes.trim(),
       };
@@ -85,16 +76,11 @@ export default function ExportModal({
     }
   }
 
-  const exportCount =
-    scope === "selected"
-      ? selectedCount
-      : scope === "filtered"
-      ? filteredCount
-      : totalCount;
+  const exportCount = scope === "selected" ? selectedCount : totalCount;
 
   return (
     <Modal open={open} onClose={isExporting ? () => {} : onClose}>
-      <div className="space-y-6">
+      <div className="space-y-6 max-h-[80vh] overflow-y-auto pr-1">
         {/* Header */}
         <div className="flex items-center gap-2.5 border-b border-border pb-3">
           <FolderArchive size={18} className="text-accent" />
@@ -108,7 +94,7 @@ export default function ExportModal({
           <label className="block text-xs font-mono uppercase text-ink-tertiary tracking-wider">
             Export Scope
           </label>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => setScope("all")}
@@ -126,23 +112,6 @@ export default function ExportModal({
 
             <button
               type="button"
-              disabled={!activeCategory && !activeTag}
-              onClick={() => setScope("filtered")}
-              className={`p-2.5 border text-left rounded-sm text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                scope === "filtered"
-                  ? "border-accent bg-accent-light text-ink"
-                  : "border-border hover:border-border-strong text-ink-secondary"
-              }`}
-            >
-              <span className="font-semibold block">Filtered</span>
-              <span className="text-[11px] text-ink-tertiary block mt-0.5 truncate">
-                {filteredCount} entries
-                {activeCategory ? ` (${activeCategory})` : ""}
-              </span>
-            </button>
-
-            <button
-              type="button"
               disabled={selectedCount === 0}
               onClick={() => setScope("selected")}
               className={`p-2.5 border text-left rounded-sm text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
@@ -151,9 +120,9 @@ export default function ExportModal({
                   : "border-border hover:border-border-strong text-ink-secondary"
               }`}
             >
-              <span className="font-semibold block">Selected</span>
+              <span className="font-semibold block">Selected Only</span>
               <span className="text-[11px] text-ink-tertiary block mt-0.5">
-                {selectedCount} selected
+                {selectedCount} {selectedCount === 1 ? "entry" : "entries"}
               </span>
             </button>
           </div>
@@ -161,21 +130,18 @@ export default function ExportModal({
 
         {/* Direction Notes */}
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label
-              htmlFor="export-direction-notes"
-              className="block text-xs font-mono uppercase text-ink-tertiary tracking-wider"
-            >
-              Designer Direction Notes
-            </label>
-            <span className="text-[11px] text-ink-tertiary">
-              Included in SKILL.md for the agent
-            </span>
-          </div>
+          <label
+            htmlFor="export-direction-notes"
+            className="block text-xs font-mono uppercase text-ink-tertiary tracking-wider"
+          >
+            Designer Direction Notes (Optional)
+          </label>
+          <p className="text-[11px] text-ink-secondary leading-relaxed">
+            High-level aesthetic direction injected into SKILL.md. Leave empty to omit this section.
+          </p>
           {isLoadingNotes ? (
-            <div className="py-6 text-center text-xs text-ink-tertiary">
-              <Loader2 size={14} className="animate-spin inline mr-1 text-accent" />
-              Loading direction notes...
+            <div className="h-20 flex items-center justify-center border border-border rounded-sm bg-surface">
+              <Loader2 size={16} className="animate-spin text-accent" />
             </div>
           ) : (
             <textarea
@@ -183,29 +149,128 @@ export default function ExportModal({
               rows={3}
               value={directionNotes}
               onChange={(e) => setDirectionNotes(e.target.value)}
-              placeholder="e.g. warm, editorial aesthetic, restrained color, strong type hierarchy..."
+              placeholder="e.g. warm editorial aesthetic, restrained color palette, strong typographic hierarchy..."
               className="w-full px-3 py-2 bg-surface border border-border text-xs text-ink
                 placeholder:text-ink-tertiary focus:outline-none focus:border-border-strong rounded-sm resize-y font-sans"
             />
           )}
         </div>
 
-        {/* How to use this hint */}
-        <div className="p-3 bg-surface border border-border rounded-sm flex items-start gap-2.5 text-xs text-ink-secondary">
-          <Info size={15} className="text-accent shrink-0 mt-0.5" />
-          <div className="space-y-1 text-[11px] leading-relaxed">
-            <span className="font-medium text-ink block">How to use this skill:</span>
-            <p>
-              Unzip the downloaded folder into your AI coding agent's skills directory (e.g.{" "}
-              <code className="font-mono text-ink bg-surface-elevated px-1 py-0.5 border border-border rounded">
-                .agents/skills/designer-taste-library
-              </code>{" "}
-              or{" "}
-              <code className="font-mono text-ink bg-surface-elevated px-1 py-0.5 border border-border rounded">
-                ~/.gemini/config/skills/
-              </code>
-              ). Your agent will study these references before generating new UI.
-            </p>
+        {/* Installation Instructions per Agent */}
+        <div className="space-y-2 pt-2 border-t border-border">
+          <label className="block text-xs font-mono uppercase text-ink-tertiary tracking-wider">
+            Install Instructions per Agent
+          </label>
+
+          <div className="flex items-center gap-1 border-b border-border text-xs">
+            <button
+              type="button"
+              onClick={() => setActiveTab("desktop")}
+              className={`px-3 py-1.5 border-b-2 font-medium flex items-center gap-1.5 transition-colors ${
+                activeTab === "desktop"
+                  ? "border-accent text-ink"
+                  : "border-transparent text-ink-secondary hover:text-ink"
+              }`}
+            >
+              <Monitor size={13} />
+              <span>Claude App</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("code")}
+              className={`px-3 py-1.5 border-b-2 font-medium flex items-center gap-1.5 transition-colors ${
+                activeTab === "code"
+                  ? "border-accent text-ink"
+                  : "border-transparent text-ink-secondary hover:text-ink"
+              }`}
+            >
+              <Terminal size={13} />
+              <span>Claude Code</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("antigravity")}
+              className={`px-3 py-1.5 border-b-2 font-medium flex items-center gap-1.5 transition-colors ${
+                activeTab === "antigravity"
+                  ? "border-accent text-ink"
+                  : "border-transparent text-ink-secondary hover:text-ink"
+              }`}
+            >
+              <Sparkles size={13} />
+              <span>Antigravity / Gemini</span>
+            </button>
+          </div>
+
+          <div className="p-3 bg-surface border border-border rounded-sm text-xs text-ink-secondary space-y-2">
+            {activeTab === "desktop" && (
+              <div className="space-y-1.5 text-[11px] leading-relaxed">
+                <p className="font-medium text-ink">Install in Claude Desktop App:</p>
+                <ol className="list-decimal list-inside space-y-1 text-ink-secondary">
+                  <li>Ensure code execution is enabled in your Claude settings.</li>
+                  <li>In the Claude Desktop sidebar, open <strong>Customize</strong> (or <strong>Skills</strong>).</li>
+                  <li>Click <strong>Upload a skill</strong> and select the downloaded <code className="font-mono text-ink bg-surface-elevated px-1 py-0.5 border border-border rounded">taste-skill.zip</code>.</li>
+                  <li>Toggle the skill <strong>On</strong> in your skill list. The ZIP root folder contains the required <code className="font-mono text-ink">designer-taste-library/SKILL.md</code>.</li>
+                </ol>
+              </div>
+            )}
+
+            {activeTab === "code" && (
+              <div className="space-y-2 text-[11px] leading-relaxed">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-ink">Install for Claude Code CLI:</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      copyToClipboard(
+                        "mkdir -p ~/.claude/skills && unzip taste-skill.zip -d ~/.claude/skills",
+                        "code"
+                      )
+                    }
+                    className="flex items-center gap-1 text-[10px] text-accent hover:underline font-mono"
+                  >
+                    {copiedKey === "code" ? <Check size={11} /> : <Copy size={11} />}
+                    <span>{copiedKey === "code" ? "Copied" : "Copy"}</span>
+                  </button>
+                </div>
+                <pre className="font-mono text-[11px] p-2 bg-surface-elevated border border-border rounded text-ink overflow-x-auto">
+mkdir -p ~/.claude/skills
+unzip taste-skill.zip -d ~/.claude/skills
+                </pre>
+                <p className="text-ink-tertiary">
+                  Unpacks directly into <code className="font-mono text-ink">~/.claude/skills/designer-taste-library/</code>.
+                </p>
+              </div>
+            )}
+
+            {activeTab === "antigravity" && (
+              <div className="space-y-2 text-[11px] leading-relaxed">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-ink">Install for Google Antigravity / Gemini CLI:</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      copyToClipboard(
+                        "mkdir -p ~/.gemini/config/skills && unzip taste-skill.zip -d ~/.gemini/config/skills",
+                        "antigravity"
+                      )
+                    }
+                    className="flex items-center gap-1 text-[10px] text-accent hover:underline font-mono"
+                  >
+                    {copiedKey === "antigravity" ? <Check size={11} /> : <Copy size={11} />}
+                    <span>{copiedKey === "antigravity" ? "Copied" : "Copy"}</span>
+                  </button>
+                </div>
+                <pre className="font-mono text-[11px] p-2 bg-surface-elevated border border-border rounded text-ink overflow-x-auto">
+# Global install
+mkdir -p ~/.gemini/config/skills
+unzip taste-skill.zip -d ~/.gemini/config/skills
+
+# Or project-level
+mkdir -p .agents/skills
+unzip taste-skill.zip -d .agents/skills
+                </pre>
+              </div>
+            )}
           </div>
         </div>
 

@@ -1,7 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import Header from "../components/common/Header";
 import AddEntryBar from "../components/add-entry/AddEntryBar";
-import FilterBar from "../components/library/FilterBar";
 import EntryGrid from "../components/library/EntryGrid";
 import EmptyState from "../components/library/EmptyState";
 import ExportModal from "../components/common/ExportModal";
@@ -9,27 +8,11 @@ import { useEntries } from "../hooks/useEntries";
 import { Loader2, Download, X, CheckSquare } from "lucide-react";
 
 export default function LibraryPage() {
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [activeTag, setActiveTag] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exportModalOpen, setExportModalOpen] = useState(false);
-  const [exportInitialScope, setExportInitialScope] = useState<"all" | "filtered" | "selected">("all");
+  const [exportInitialScope, setExportInitialScope] = useState<"all" | "selected">("all");
 
-  // Fetch all entries so FilterBar can aggregate all available categories and tags
   const { entries, isLoading, isError, error, refetch } = useEntries();
-
-  // Filter in-memory for smooth instant feedback
-  const filteredEntries = useMemo(() => {
-    return entries.filter((entry) => {
-      if (activeCategory && entry.category !== activeCategory) {
-        return false;
-      }
-      if (activeTag && !entry.tags.includes(activeTag)) {
-        return false;
-      }
-      return true;
-    });
-  }, [entries, activeCategory, activeTag]);
 
   function handleToggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -41,14 +24,14 @@ export default function LibraryPage() {
   }
 
   function handleSelectAll() {
-    setSelectedIds(new Set(filteredEntries.map((e) => e.id)));
+    setSelectedIds(new Set(entries.map((e) => e.id)));
   }
 
   function handleClearSelection() {
     setSelectedIds(new Set());
   }
 
-  function handleOpenExport(scope: "all" | "filtered" | "selected") {
+  function handleOpenExport(scope: "all" | "selected") {
     setExportInitialScope(scope);
     setExportModalOpen(true);
   }
@@ -65,19 +48,6 @@ export default function LibraryPage() {
         <section className="max-w-2xl mx-auto">
           <AddEntryBar />
         </section>
-
-        {/* Filters */}
-        {entries.length > 0 && (
-          <section className="pt-2">
-            <FilterBar
-              entries={entries}
-              activeCategory={activeCategory}
-              activeTag={activeTag}
-              onCategoryChange={setActiveCategory}
-              onTagChange={setActiveTag}
-            />
-          </section>
-        )}
 
         {/* Content Section */}
         <section className="pt-2">
@@ -100,24 +70,9 @@ export default function LibraryPage() {
             </div>
           ) : entries.length === 0 ? (
             <EmptyState />
-          ) : filteredEntries.length === 0 ? (
-            <div className="py-20 text-center space-y-2">
-              <p className="text-sm text-ink-secondary">
-                No entries match the selected filters.
-              </p>
-              <button
-                onClick={() => {
-                  setActiveCategory(null);
-                  setActiveTag(null);
-                }}
-                className="text-xs text-accent hover:underline"
-              >
-                Clear filters
-              </button>
-            </div>
           ) : (
             <EntryGrid
-              entries={filteredEntries}
+              entries={entries}
               selectedIds={selectedIds}
               onToggleSelect={handleToggleSelect}
             />
@@ -125,7 +80,7 @@ export default function LibraryPage() {
         </section>
       </main>
 
-      {/* Floating Selection Bar */}
+      {/* Floating Selection Bar for Export only */}
       {selectedIds.size > 0 && (
         <aside
           aria-label="Selection toolbar"
@@ -143,7 +98,7 @@ export default function LibraryPage() {
             className="text-surface/80 hover:text-surface transition-colors flex items-center gap-1.5"
           >
             <CheckSquare size={13} />
-            <span>Select all ({filteredEntries.length})</span>
+            <span>Select all ({entries.length})</span>
           </button>
 
           <button
@@ -173,11 +128,8 @@ export default function LibraryPage() {
         open={exportModalOpen}
         onClose={() => setExportModalOpen(false)}
         totalCount={entries.length}
-        filteredCount={filteredEntries.length}
         selectedCount={selectedIds.size}
         selectedIds={Array.from(selectedIds)}
-        activeCategory={activeCategory}
-        activeTag={activeTag}
         initialScope={exportInitialScope}
       />
     </div>

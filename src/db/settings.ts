@@ -1,7 +1,6 @@
 import { db } from "./index.js";
 
-const DEFAULT_DIRECTION_NOTES =
-  "Warm, editorial aesthetic. Restrained color palette with intentional accents. Strong typographic hierarchy using high-quality sans/serif pairings. Generous spacing, minimal decoration, and purposeful layout structure.";
+const DEFAULT_DIRECTION_NOTES = "";
 
 export function getSetting(key: string): string | null {
   const row = db

@@ -15,7 +15,6 @@ import {
 } from "../services/capture-service.js";
 import { getDirectionNotes, setDirectionNotes } from "../db/settings.js";
 import { createExportArchive } from "../services/export-service.js";
-import { generateAiSuggestions, isAiTaggerConfigured } from "../services/ai-tagger-service.js";
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -37,38 +36,33 @@ app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+/**
+ * Formats entry for client response, stripping unused fields and providing thumbnail URL.
+ */
 function formatEntry(entry: Entry) {
-  let thumbnailUrl = `/screenshots/${entry.id}/full.png`;
-  if (entry.full_page_unreliable) {
-    if (entry.steps_dir && fs.existsSync(entry.steps_dir)) {
-      try {
-        const files = fs.readdirSync(entry.steps_dir).filter((f) => f.endsWith(".png")).sort();
-        if (files.length > 0) {
-          thumbnailUrl = `/screenshots/${entry.id}/steps/${files[0]}`;
-        }
-      } catch {
-        thumbnailUrl = `/screenshots/${entry.id}/steps/01.png`;
-      }
-    } else {
-      thumbnailUrl = `/screenshots/${entry.id}/steps/01.png`;
-    }
-  }
+  const entryDir = path.resolve(SCREENSHOTS_DIR, entry.id);
+  const thumbPath = path.resolve(entryDir, "thumb.png");
+  const thumbExists = fs.existsSync(thumbPath);
 
   return {
-    ...entry,
-    thumbnail_url: thumbnailUrl,
+    id: entry.id,
+    url: entry.url,
+    title: entry.title,
+    notes: entry.notes,
+    captured_at: entry.captured_at,
     full_page_url: `/screenshots/${entry.id}/full.png`,
-    steps_url: `/screenshots/${entry.id}/steps`,
+    thumbnail_url: thumbExists
+      ? `/screenshots/${entry.id}/thumb.png`
+      : `/screenshots/${entry.id}/full.png`,
   };
 }
 
 /**
  * POST /api/entries
- * Takes { url: string, force?: boolean, category?: string, tags?: string[], notes?: string }
- * Validates the URL, executes headless capture, saves entry, and returns 201 Created.
+ * Takes { url: string, force?: boolean, notes?: string }
  */
 app.post("/api/entries", async (req: Request, res: Response) => {
-  const { url, force, category, tags, notes } = req.body || {};
+  const { url, force, notes } = req.body || {};
 
   if (!url || typeof url !== "string") {
     res.status(400).json({ error: "A valid 'url' string is required in the request body." });
@@ -78,8 +72,6 @@ app.post("/api/entries", async (req: Request, res: Response) => {
   try {
     const entry = await captureAndCreateEntry(url, {
       force: Boolean(force),
-      category: typeof category === "string" ? category : undefined,
-      tags: Array.isArray(tags) ? tags : undefined,
       notes: typeof notes === "string" ? notes : undefined,
     });
 
@@ -98,14 +90,10 @@ app.post("/api/entries", async (req: Request, res: Response) => {
 /**
  * GET /api/entries
  * Returns a list of all entries, newest first.
- * Supports optional ?category= and ?tag= query filters.
  */
-app.get("/api/entries", (req: Request, res: Response) => {
-  const category = typeof req.query.category === "string" ? req.query.category : undefined;
-  const tag = typeof req.query.tag === "string" ? req.query.tag : undefined;
-
+app.get("/api/entries", (_req: Request, res: Response) => {
   try {
-    const entries = listEntries({ category, tag });
+    const entries = listEntries();
     const formatted = entries.map(formatEntry);
 
     res.json({ entries: formatted });
@@ -116,7 +104,7 @@ app.get("/api/entries", (req: Request, res: Response) => {
 
 /**
  * GET /api/entries/:id
- * Fetches one entry, including full list of step image URLs and file paths.
+ * Fetches one entry.
  */
 app.get("/api/entries/:id", (req: Request, res: Response) => {
   const id = String(req.params.id);
@@ -128,25 +116,8 @@ app.get("/api/entries/:id", (req: Request, res: Response) => {
       return;
     }
 
-    // Scan steps directory for numbered step screenshots
-    let stepImages: string[] = [];
-    if (entry.steps_dir && fs.existsSync(entry.steps_dir)) {
-      try {
-        const files = fs.readdirSync(entry.steps_dir);
-        stepImages = files
-          .filter((f) => f.endsWith(".png"))
-          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-          .map((f) => `/screenshots/${entry.id}/steps/${f}`);
-      } catch {
-        stepImages = [];
-      }
-    }
-
     res.json({
-      entry: {
-        ...formatEntry(entry),
-        step_images: stepImages,
-      },
+      entry: formatEntry(entry),
     });
   } catch (err: any) {
     res.status(500).json({ error: `Failed to fetch entry '${id}': ${err.message || err}` });
@@ -155,22 +126,15 @@ app.get("/api/entries/:id", (req: Request, res: Response) => {
 
 /**
  * PATCH /api/entries/:id
- * Updates category, tags, notes only.
+ * Updates notes.
  */
 app.patch("/api/entries/:id", (req: Request, res: Response) => {
   const id = String(req.params.id);
-  const { category, tags, notes } = req.body || {};
-
-  if (tags !== undefined && !Array.isArray(tags)) {
-    res.status(400).json({ error: "'tags' must be an array of strings." });
-    return;
-  }
+  const { notes } = req.body || {};
 
   try {
     const updated = updateEntry(id, {
-      category: category !== undefined ? category : undefined,
-      tags: tags !== undefined ? tags : undefined,
-      notes: notes !== undefined ? notes : undefined,
+      notes: typeof notes === "string" ? notes : null,
     });
 
     if (!updated) {
@@ -188,7 +152,7 @@ app.patch("/api/entries/:id", (req: Request, res: Response) => {
 
 /**
  * DELETE /api/entries/:id
- * Removes entry from database and removes its screenshot files from disk.
+ * Removes entry from database and removes its screenshot folder from disk.
  */
 app.delete("/api/entries/:id", (req: Request, res: Response) => {
   const id = String(req.params.id);
@@ -204,10 +168,7 @@ app.delete("/api/entries/:id", (req: Request, res: Response) => {
     deleteEntry(id);
 
     // 2. Delete screenshot files and folder from disk
-    const captureDir = entry.steps_dir
-      ? path.resolve(entry.steps_dir, "..")
-      : path.resolve(SCREENSHOTS_DIR, id);
-
+    const captureDir = path.resolve(SCREENSHOTS_DIR, id);
     if (fs.existsSync(captureDir)) {
       try {
         fs.rmSync(captureDir, { recursive: true, force: true });
@@ -244,15 +205,13 @@ app.patch("/api/settings/direction-notes", (req: Request, res: Response) => {
 
 /**
  * POST /api/export
- * Body: { scope?: 'all' | 'filtered' | 'selected', category?: string, tag?: string, entryIds?: string[], directionNotes?: string }
+ * Body: { scope?: 'all' | 'selected', entryIds?: string[], directionNotes?: string }
  */
 app.post("/api/export", async (req: Request, res: Response) => {
   try {
-    const { scope = "all", category, tag, entryIds, directionNotes } = req.body || {};
+    const { scope = "all", entryIds, directionNotes } = req.body || {};
     const { archive, warnings } = await createExportArchive({
       scope,
-      category,
-      tag,
       entryIds,
       directionNotes,
     });
@@ -277,39 +236,6 @@ app.post("/api/export", async (req: Request, res: Response) => {
     if (!res.headersSent) {
       res.status(500).json({ error: err.message || "Failed to generate export." });
     }
-  }
-});
-
-/**
- * GET /api/ai/status
- */
-app.get("/api/ai/status", (_req: Request, res: Response) => {
-  res.json({ configured: isAiTaggerConfigured() });
-});
-
-/**
- * POST /api/entries/:id/ai-suggest
- */
-app.post("/api/entries/:id/ai-suggest", async (req: Request, res: Response) => {
-  const id = String(req.params.id);
-
-  if (!isAiTaggerConfigured()) {
-    res.json({
-      configured: false,
-      error: "Anthropic API key is not configured. Set ANTHROPIC_API_KEY to enable AI tag suggestions.",
-    });
-    return;
-  }
-
-  try {
-    const suggestions = await generateAiSuggestions(id);
-    res.json(suggestions);
-  } catch (err: any) {
-    console.error(`AI tag suggestion failed for entry '${id}':`, err.message || err);
-    res.status(500).json({
-      configured: true,
-      error: err.message || "Failed to generate AI tag suggestions.",
-    });
   }
 });
 

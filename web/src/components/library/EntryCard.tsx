@@ -13,7 +13,6 @@ export default function EntryCard({
   isSelected = false,
   onToggleSelect,
 }: EntryCardProps) {
-  // Extract hostname for compact label
   let hostname = "";
   try {
     hostname = new URL(entry.url).hostname.replace(/^www\./, "");
@@ -21,11 +20,7 @@ export default function EntryCard({
     hostname = entry.url;
   }
 
-  const thumbnailSrc =
-    entry.thumbnail_url ||
-    (entry.full_page_unreliable
-      ? entry.step_images?.[0] || `/screenshots/${entry.id}/steps/01.png`
-      : entry.full_page_url);
+  const thumbnailSrc = entry.thumbnail_url || entry.full_page_url;
 
   return (
     <div
@@ -35,7 +30,7 @@ export default function EntryCard({
           : "border-border hover:border-border-strong bg-surface-elevated"
       }`}
     >
-      {/* Checkbox Overlay */}
+      {/* Checkbox Overlay for multi-select */}
       {onToggleSelect && (
         <button
           type="button"
@@ -68,36 +63,21 @@ export default function EntryCard({
           />
         </div>
 
-      {/* Metadata strip */}
-      <div className="px-3.5 py-3 border-t border-border">
-        <p className="text-sm font-medium text-ink truncate leading-tight">
-          {entry.title}
-        </p>
-        <p className="text-xs text-ink-tertiary font-mono mt-1 truncate">
-          {hostname}
-        </p>
-        <div className="flex items-center gap-2 mt-2 flex-wrap">
-          {entry.category && (
-            <span className="text-[10px] uppercase tracking-widest text-ink-secondary">
-              {entry.category}
-            </span>
-          )}
-          {entry.tags.slice(0, 3).map((tag) => (
-            <span
-              key={tag}
-              className="text-[10px] font-mono text-ink-tertiary border border-border px-1.5 py-0.5 rounded-sm"
-            >
-              {tag}
-            </span>
-          ))}
-          {entry.tags.length > 3 && (
-            <span className="text-[10px] font-mono text-ink-tertiary">
-              +{entry.tags.length - 3}
-            </span>
+        {/* Card info */}
+        <div className="px-3.5 py-3 border-t border-border">
+          <p className="text-sm font-medium text-ink truncate leading-tight">
+            {entry.title}
+          </p>
+          <p className="text-xs text-ink-tertiary font-mono mt-1 truncate">
+            {hostname}
+          </p>
+          {entry.notes && entry.notes.trim() && (
+            <p className="text-xs text-ink-secondary mt-2 line-clamp-2 leading-relaxed">
+              {entry.notes.trim()}
+            </p>
           )}
         </div>
-      </div>
-    </Link>
+      </Link>
     </div>
   );
 }

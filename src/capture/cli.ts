@@ -34,20 +34,24 @@ async function main() {
     console.log(` Title:        ${result.title}`);
     console.log(` Capture ID:   ${result.captureId}`);
     console.log(` Total Height: ${result.totalHeight}px`);
-    console.log(` Capped:       ${result.isCapped ? "YES (exceeded max page height limit)" : "No"}`);
-    console.log(` Steps Saved:  ${result.stepPaths.length} viewports`);
-    console.log(` Steps Folder: ${result.stepsDir}`);
+    console.log(` Path Used:    ${result.capturePathUsed.toUpperCase()}`);
+    console.log(` Content Check: ${result.contentCheck.passed ? "PASSED" : "FAILED"} (${result.contentCheck.mismatchedRegions}/${result.contentCheck.testedRegions} mismatched)`);
+    if (result.framesKept !== undefined) {
+      console.log(` Frames Kept:  ${result.framesKept} (${result.framesDropped || 0} dropped)`);
+    }
+    console.log(` Capped:       ${result.isCapped ? "YES" : "No"}`);
     console.log(` Full Image:   ${result.fullPagePath}`);
+    console.log(` Thumbnail:    ${result.thumbnailPath}`);
     console.log(`========================================\n`);
 
-    // Output raw JSON paths for scripting / programmatic convenience
     console.log("Saved Paths:");
     console.log(
       JSON.stringify(
         {
           fullPagePath: result.fullPagePath,
-          stepsDir: result.stepsDir,
-          stepPaths: result.stepPaths,
+          thumbnailPath: result.thumbnailPath,
+          capturePathUsed: result.capturePathUsed,
+          totalHeight: result.totalHeight,
         },
         null,
         2

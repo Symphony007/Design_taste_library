@@ -1,7 +1,5 @@
 /**
  * Centralized API client.
- * All fetch calls go through here so adding auth headers later
- * is a single-file change.
  */
 import type { Entry, UpdateEntryInput } from "../types/entry";
 
@@ -51,18 +49,8 @@ interface EntryResponse {
   entry: Entry;
 }
 
-export async function fetchEntries(filters?: {
-  category?: string;
-  tag?: string;
-}): Promise<Entry[]> {
-  const params = new URLSearchParams();
-  if (filters?.category) params.set("category", filters.category);
-  if (filters?.tag) params.set("tag", filters.tag);
-
-  const qs = params.toString();
-  const data = await request<EntriesResponse>(
-    `/entries${qs ? `?${qs}` : ""}`
-  );
+export async function fetchEntries(): Promise<Entry[]> {
+  const data = await request<EntriesResponse>("/entries");
   return data.entries;
 }
 
@@ -100,9 +88,7 @@ export async function deleteEntry(id: string): Promise<void> {
 /* ─── Settings & Export ─── */
 
 export interface ExportOptions {
-  scope: "all" | "filtered" | "selected";
-  category?: string;
-  tag?: string;
+  scope?: "all" | "selected";
   entryIds?: string[];
   directionNotes?: string;
 }
@@ -147,26 +133,4 @@ export async function downloadExport(options: ExportOptions): Promise<void> {
   window.URL.revokeObjectURL(blobUrl);
 }
 
-/* ─── AI Suggestions ─── */
-
-export interface AiSuggestionsResult {
-  configured: boolean;
-  category?: string;
-  tags?: string[];
-  description?: string;
-  error?: string;
-}
-
-export async function fetchAiStatus(): Promise<{ configured: boolean }> {
-  return request<{ configured: boolean }>("/ai/status");
-}
-
-export async function fetchAiSuggestions(entryId: string): Promise<AiSuggestionsResult> {
-  return request<AiSuggestionsResult>(`/entries/${entryId}/ai-suggest`, {
-    method: "POST",
-  });
-}
-
 export { ApiError };
-
-

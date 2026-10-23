@@ -1,17 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Trash2, Loader2, Calendar, Info } from "lucide-react";
+import { ArrowLeft, ExternalLink, Trash2, Loader2, Calendar } from "lucide-react";
 import Header from "../components/common/Header";
 import Modal from "../components/common/Modal";
-import ViewToggle from "../components/entry-detail/ViewToggle";
 import ScreenshotViewer from "../components/entry-detail/ScreenshotViewer";
-import EntryMetadataEditor from "../components/entry-detail/EntryMetadataEditor";
+import NotesEditor from "../components/entry-detail/NotesEditor";
 import { useEntry } from "../hooks/useEntry";
 
 export default function EntryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [view, setView] = useState<"full" | "steps">("full");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
   const {
@@ -25,13 +23,6 @@ export default function EntryDetailPage() {
     isDeleting,
   } = useEntry(id);
 
-  // Default to Steps view if this site locks page scrolling
-  useEffect(() => {
-    if (entry?.full_page_unreliable) {
-      setView("steps");
-    }
-  }, [entry?.full_page_unreliable]);
-
   async function handleDeleteConfirm() {
     try {
       await deleteEntry();
@@ -42,7 +33,6 @@ export default function EntryDetailPage() {
     }
   }
 
-  // Format captured date
   const capturedDate = entry?.captured_at
     ? new Date(entry.captured_at).toLocaleDateString(undefined, {
         year: "numeric",
@@ -67,24 +57,15 @@ export default function EntryDetailPage() {
           </Link>
 
           {entry && (
-            <div className="flex items-center gap-3">
-              <ViewToggle
-                view={view}
-                onViewChange={setView}
-                stepCount={entry.step_images?.length}
-                fullPageDisabled={Boolean(entry.full_page_unreliable)}
-              />
-
-              <button
-                type="button"
-                onClick={() => setDeleteModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-ink-secondary hover:text-danger hover:border-danger/30 border border-border rounded-sm transition-colors"
-                title="Delete entry"
-              >
-                <Trash2 size={13} />
-                <span className="hidden sm:inline">Delete</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setDeleteModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-ink-secondary hover:text-danger hover:border-danger/30 border border-border rounded-sm transition-colors"
+              title="Delete entry"
+            >
+              <Trash2 size={13} />
+              <span>Delete</span>
+            </button>
           )}
         </div>
 
@@ -108,8 +89,8 @@ export default function EntryDetailPage() {
             </Link>
           </div>
         ) : (
-          <div className="space-y-8">
-            {/* Entry Header Info */}
+          <div className="space-y-6">
+            {/* Header info */}
             <div className="space-y-2">
               <h1 className="text-2xl font-semibold tracking-tight text-ink">
                 {entry.title}
@@ -133,30 +114,24 @@ export default function EntryDetailPage() {
               </div>
             </div>
 
-            {/* Layout: Viewer on left/main, Metadata editor alongside or below */}
+            {/* Layout: Full page screenshot on left, Notes editor on right */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              {/* Screenshots display */}
-              <div className="lg:col-span-8 order-2 lg:order-1 space-y-4">
-                {entry.full_page_unreliable && (
-                  <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300 text-xs">
-                    <Info size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
-                    <span>This site locks page scrolling, so Steps is the accurate view.</span>
-                  </div>
-                )}
+              {/* Full page image */}
+              <div className="lg:col-span-8 order-2 lg:order-1">
                 <ScreenshotViewer
-                  view={view}
                   fullPageUrl={entry.full_page_url}
                   title={entry.title}
-                  stepImages={entry.step_images}
                 />
               </div>
 
-              {/* Metadata & Notes sidebar */}
+              {/* Notes box */}
               <div className="lg:col-span-4 order-1 lg:order-2 lg:sticky lg:top-6">
-                <EntryMetadataEditor
-                  entry={entry}
-                  onUpdate={updateEntryAsync}
-                  isUpdating={isUpdating}
+                <NotesEditor
+                  initialNotes={entry.notes}
+                  onSave={async (newNotes) => {
+                    await updateEntryAsync({ notes: newNotes });
+                  }}
+                  isSaving={isUpdating}
                 />
               </div>
             </div>
@@ -171,7 +146,7 @@ export default function EntryDetailPage() {
             Delete this entry?
           </h3>
           <p className="text-xs text-ink-secondary leading-relaxed">
-            This will permanently remove <span className="font-medium text-ink font-mono">{entry?.title}</span> along with all full-page and stepped screenshots. This action cannot be undone.
+            This will permanently remove <span className="font-medium text-ink font-mono">{entry?.title}</span> along with its full-page screenshot. This action cannot be undone.
           </p>
           <div className="flex justify-end gap-3 pt-3 border-t border-border">
             <button
