@@ -18,26 +18,29 @@ export const CAPTURE_CONFIG = {
   // Distance in pixels to scroll per step (matches viewport height for clean section tiling)
   SCROLL_STEP_PX: 900,
 
-  // Pause duration (ms) at each step to allow scroll effects to trigger
-  PAUSE_PER_STEP_MS: 600,
+  // Pause duration (ms) after scrolling before taking the screenshot
+  PAUSE_PER_STEP_MS: 400,
 
-  // Maximum time to wait for viewport images to complete loading and decoding
-  IMAGE_DECODE_MAX_WAIT_MS: 800,
+  // Strict cap on total wait time per step (scroll + settle + image decode combined)
+  MAX_STEP_WAIT_MS: 2000,
 
-  // Maximum time to wait for scroll and document height to become stationary
-  SETTLE_MAX_WAIT_MS: 1000,
+  // Fast check: maximum time (ms) to wait for uncompleted viewport images to decode
+  IMAGE_DECODE_MAX_WAIT_MS: 250,
+
+  // Fast check: maximum time (ms) to wait for document scroll to settle
+  SETTLE_MAX_WAIT_MS: 350,
+
+  // Minimum height (px) of new content required for a final cropped frame
+  NEW_CONTENT_MIN_PX: 150,
 
   // Consecutive identical frames limit before stopping (handles scroll-locked / virtual-scroll pages)
   CONSECUTIVE_IDENTICAL_LIMIT: 4,
 
-  // Moderate safety limits to prevent runaway capture on infinite-scroll pages
+  // Safety limits to prevent infinite-scroll pages from capturing forever
   SAFETY_LIMITS: {
-    MAX_TOTAL_STEPS: 60,
-    MAX_CAPTURE_TIME_MS: 75000, // 75 seconds
+    MAX_TOTAL_STEPS: 200,          // Up to 200 steps
+    MAX_CAPTURE_TIME_MS: 300000,   // 5 minutes (300,000 ms)
   },
-
-  // Extra bottom frame is captured only if lastScrollY + viewportHeight < documentScrollHeight - 150
-  BOTTOM_FRAME_THRESHOLD_PX: 150,
 
   // Parameters for downscaled grayscale block difference comparison
   DEDUPLICATION: {

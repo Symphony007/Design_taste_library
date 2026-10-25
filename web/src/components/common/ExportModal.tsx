@@ -15,6 +15,8 @@ interface ExportModalProps {
   selectedCount?: number;
   selectedIds?: string[];
   initialScope?: "all" | "selected";
+  totalImagesCount?: number;
+  selectedImagesCount?: number;
 }
 
 export default function ExportModal({
@@ -24,6 +26,8 @@ export default function ExportModal({
   selectedCount = 0,
   selectedIds = [],
   initialScope = "all",
+  totalImagesCount = 0,
+  selectedImagesCount = 0,
 }: ExportModalProps) {
   const [scope, setScope] = useState<"all" | "selected">(initialScope);
   const [directionNotes, setDirectionNotes] = useState("");
@@ -84,7 +88,7 @@ export default function ExportModal({
         {/* Scope Selection */}
         <div className="space-y-2">
           <label className="block text-xs font-mono uppercase text-ink-tertiary tracking-wider">
-            Export Scope
+            Export Scope & Image Count
           </label>
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -98,7 +102,7 @@ export default function ExportModal({
             >
               <span className="font-semibold block">All References</span>
               <span className="text-[11px] text-ink-tertiary block mt-0.5">
-                {totalCount} {totalCount === 1 ? "entry" : "entries"}
+                {totalCount} {totalCount === 1 ? "entry" : "entries"} · {totalImagesCount} {totalImagesCount === 1 ? "image" : "images"}
               </span>
             </button>
 
@@ -114,10 +118,13 @@ export default function ExportModal({
             >
               <span className="font-semibold block">Selected Only</span>
               <span className="text-[11px] text-ink-tertiary block mt-0.5">
-                {selectedCount} {selectedCount === 1 ? "entry" : "entries"}
+                {selectedCount} {selectedCount === 1 ? "entry" : "entries"} · {selectedImagesCount} {selectedImagesCount === 1 ? "image" : "images"}
               </span>
             </button>
           </div>
+          <p className="text-[11px] text-ink-tertiary">
+            Total images to convert & export: <strong className="text-ink font-medium">{scope === "selected" ? selectedImagesCount : totalImagesCount}</strong>
+          </p>
         </div>
 
         {/* Direction Notes */}
@@ -148,12 +155,26 @@ export default function ExportModal({
           )}
         </div>
 
-        {/* General usage hint */}
-        <div className="p-3 bg-surface border border-border rounded-sm flex items-start gap-2.5 text-xs text-ink-secondary">
-          <Info size={15} className="text-accent shrink-0 mt-0.5" />
-          <p className="text-[11px] leading-relaxed">
-            To use this skill, add the downloaded ZIP in the Claude app's skills settings. The ZIP contains the required <code className="font-mono text-ink bg-surface-elevated px-1 py-0.5 border border-border rounded">designer-taste-library/</code> root folder.
-          </p>
+        {/* Install instructions */}
+        <div className="p-3 bg-surface border border-border rounded-sm space-y-2 text-xs text-ink-secondary">
+          <div className="flex items-center gap-2 text-ink font-medium">
+            <Info size={14} className="text-accent shrink-0" />
+            <span>How to install this skill:</span>
+          </div>
+          <div className="space-y-1.5 text-[11px] leading-relaxed pl-5">
+            <div>
+              <strong className="text-ink">Claude Code:</strong> Unzip into <code className="font-mono bg-surface-elevated px-1 py-0.5 border border-border rounded text-ink">~/.claude/skills/</code>. Resulting layout:
+              <pre className="mt-1 p-2 bg-surface-elevated border border-border rounded font-mono text-[10px] text-ink leading-tight">
+{`~/.claude/skills/designer-taste-library/
+  SKILL.md
+  references/
+  assets/`}
+              </pre>
+            </div>
+            <div className="pt-1">
+              <strong className="text-ink">Claude app:</strong> Add the ZIP in the app's skills settings.
+            </div>
+          </div>
         </div>
 
         {/* Error message */}

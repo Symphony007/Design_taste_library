@@ -125,10 +125,7 @@ export async function captureAndCreateEntry(
       };
     });
 
-    let stopReasonText: string | null = null;
-    if (captureResult.hitSafetyLimit) {
-      stopReasonText = `Stopped after ${captureResult.sections.length} sections to avoid an endless page`;
-    }
+    const stopReasonText = captureResult.stopReasonText;
 
     let entry: Entry;
     if (existing) {

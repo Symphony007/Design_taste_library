@@ -1,5 +1,6 @@
 import express, { type Request, type Response } from "express";
 import path from "node:path";
+import multer from "multer";
 import {
   listEntries,
   getEntryById,
@@ -13,14 +14,30 @@ import {
   captureAndCreateEntry,
   ServiceError,
 } from "../services/capture-service.js";
+import {
+  createEntryFromUploadedFiles,
+  appendImagesToEntry,
+  UploadError,
+  UPLOAD_LIMITS,
+} from "../services/upload-service.js";
 import { createExportArchive } from "../services/export-service.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const IMAGES_DIR = path.resolve(process.cwd(), "data", "images");
 
+// Multer memory storage configuration for uploaded screenshots
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: UPLOAD_LIMITS.MAX_FILE_SIZE_BYTES,
+    files: UPLOAD_LIMITS.MAX_UPLOAD_FILES,
+  },
+});
+
 // Middleware
 app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Serve stored images statically
 app.use("/images", express.static(IMAGES_DIR));
@@ -57,37 +74,99 @@ function formatEntry(entry: Entry) {
 
 /**
  * POST /api/entries
- * Body: { url?: string, force?: boolean, notes?: string, title?: string }
+ * Handles both JSON and multipart/form-data:
+ * - If images are uploaded: creates entry from files (URL is optional, auto-capture is skipped)
+ * - If only a URL is provided: runs section auto-capture
+ * - If neither is provided: returns friendly 400 error
  */
-app.post("/api/entries", async (req: Request, res: Response) => {
-  const { url, force, notes } = req.body || {};
+app.post("/api/entries", upload.array("images", UPLOAD_LIMITS.MAX_UPLOAD_FILES), async (req: Request, res: Response) => {
+  const files = (req.files as Express.Multer.File[]) || [];
+  const { url, force, notes, title } = req.body || {};
 
-  if (!url || typeof url !== "string") {
-    res.status(400).json({ error: "A valid 'url' string is required in the request body." });
-    return;
+  // Case 1: Screenshots provided (the main path)
+  if (files.length > 0) {
+    try {
+      const entry = await createEntryFromUploadedFiles(files, {
+        title: typeof title === "string" ? title : undefined,
+        sourceUrl: typeof url === "string" ? url : undefined,
+        notes: typeof notes === "string" ? notes : undefined,
+      });
+
+      res.status(201).json({
+        entry: formatEntry(entry),
+      });
+      return;
+    } catch (err: any) {
+      const statusCode = err instanceof UploadError ? err.statusCode : 400;
+      res.status(statusCode).json({ error: err.message || "Failed to process uploaded images." });
+      return;
+    }
   }
 
-  try {
-    const { entry } = await captureAndCreateEntry(url, {
-      force: Boolean(force),
-      notes: typeof notes === "string" ? notes : undefined,
-    });
+  // Case 2: URL provided -> auto-capture
+  if (url && typeof url === "string" && url.trim()) {
+    try {
+      const { entry } = await captureAndCreateEntry(url.trim(), {
+        force: Boolean(force),
+        notes: typeof notes === "string" ? notes : undefined,
+      });
 
-    res.status(201).json({
-      entry: formatEntry(entry),
-    });
-  } catch (err: any) {
-    const statusCode = err instanceof ServiceError ? err.statusCode : 500;
-    res.status(statusCode).json({
-      error: err.message || "An unexpected error occurred during capture.",
-      ...(err.data || {}),
-    });
+      res.status(201).json({
+        entry: formatEntry(entry),
+      });
+      return;
+    } catch (err: any) {
+      const statusCode = err instanceof ServiceError ? err.statusCode : 500;
+      res.status(statusCode).json({
+        error: err.message || "An unexpected error occurred during capture.",
+        ...(err.data || {}),
+      });
+      return;
+    }
   }
+
+  // Case 3: Neither URL nor images provided
+  res.status(400).json({
+    error: "Please provide either a URL to capture or at least one screenshot.",
+  });
 });
 
 /**
+ * POST /api/entries/:id/images
+ * Appends new screenshot files to an existing entry.
+ */
+app.post(
+  "/api/entries/:id/images",
+  upload.array("images", UPLOAD_LIMITS.MAX_UPLOAD_FILES),
+  async (req: Request, res: Response) => {
+    const entryId = String(req.params.id);
+    const files = (req.files as Express.Multer.File[]) || [];
+
+    if (files.length === 0) {
+      res.status(400).json({ error: "No image files provided." });
+      return;
+    }
+
+    try {
+      await appendImagesToEntry(entryId, files);
+      const updated = getEntryById(entryId);
+      if (!updated) {
+        res.status(404).json({ error: `Entry '${entryId}' not found.` });
+        return;
+      }
+
+      res.status(201).json({
+        entry: formatEntry(updated),
+      });
+    } catch (err: any) {
+      const statusCode = err instanceof UploadError ? err.statusCode : 500;
+      res.status(statusCode).json({ error: err.message || "Failed to append images." });
+    }
+  }
+);
+
+/**
  * GET /api/entries
- * Returns list of entries, newest first.
  */
 app.get("/api/entries", (_req: Request, res: Response) => {
   try {
@@ -121,7 +200,6 @@ app.get("/api/entries/:id", (req: Request, res: Response) => {
 
 /**
  * PATCH /api/entries/:id
- * Updates title and/or notes.
  */
 app.patch("/api/entries/:id", (req: Request, res: Response) => {
   const id = String(req.params.id);
@@ -148,7 +226,6 @@ app.patch("/api/entries/:id", (req: Request, res: Response) => {
 
 /**
  * DELETE /api/entries/:id
- * Removes entry and all its image files from disk.
  */
 app.delete("/api/entries/:id", (req: Request, res: Response) => {
   const id = String(req.params.id);
@@ -168,7 +245,6 @@ app.delete("/api/entries/:id", (req: Request, res: Response) => {
 
 /**
  * DELETE /api/entries/:id/images/:imageId
- * Deletes a single image, removes file from disk, and compacts remaining positions.
  */
 app.delete("/api/entries/:id/images/:imageId", (req: Request, res: Response) => {
   const entryId = String(req.params.id);
@@ -213,7 +289,6 @@ app.patch("/api/settings/direction-notes", (req: Request, res: Response) => {
 
 /**
  * POST /api/export
- * Generates and downloads the ZIP skill archive.
  */
 app.post("/api/export", async (req: Request, res: Response) => {
   try {
@@ -247,6 +322,35 @@ app.post("/api/export", async (req: Request, res: Response) => {
   }
 });
 
+// Centralized error handling middleware
+app.use((err: any, _req: Request, res: Response, _next: express.NextFunction) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      res.status(400).json({
+        error: `File exceeds the maximum allowed file size of ${UPLOAD_LIMITS.MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.`,
+      });
+      return;
+    }
+    if (err.code === "LIMIT_FILE_COUNT") {
+      res.status(400).json({
+        error: `Too many files. Maximum allowed per request is ${UPLOAD_LIMITS.MAX_UPLOAD_FILES}.`,
+      });
+      return;
+    }
+    res.status(400).json({ error: `Upload error: ${err.message}` });
+    return;
+  }
+
+  if (err && err.status) {
+    res.status(err.status).json({ error: err.message || "Request failed." });
+    return;
+  }
+
+  console.error("Unhandled server error:", err);
+  res.status(500).json({ error: err?.message || "Internal server error." });
+});
+
 app.listen(PORT, () => {
   console.log(`Taste server running at http://localhost:${PORT}`);
 });
+

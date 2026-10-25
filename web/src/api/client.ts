@@ -21,9 +21,19 @@ async function request<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
+  const isFormData = options?.body instanceof FormData;
+  const headers: Record<string, string> = {};
+
+  if (!isFormData) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: {
+      ...headers,
+      ...(options?.headers as Record<string, string>),
+    },
   });
 
   const body = await res.json().catch(() => ({}));
@@ -66,6 +76,27 @@ export async function captureEntry(
   const data = await request<EntryResponse>("/entries", {
     method: "POST",
     body: JSON.stringify({ url, force: options?.force }),
+  });
+  return data.entry;
+}
+
+export async function createEntryWithImages(formData: FormData): Promise<Entry> {
+  const data = await request<EntryResponse>("/entries", {
+    method: "POST",
+    body: formData,
+  });
+  return data.entry;
+}
+
+export async function uploadImagesToEntry(entryId: string, files: File[]): Promise<Entry> {
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append("images", file);
+  }
+
+  const data = await request<EntryResponse>(`/entries/${entryId}/images`, {
+    method: "POST",
+    body: formData,
   });
   return data.entry;
 }

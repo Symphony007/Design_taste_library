@@ -1,61 +1,24 @@
 # Taste
 
-A personal design-reference library for UI designers and developers who want to curate websites they love and turn them into structured skills for AI coding agents.
-
-Capture websites as dependable full-page screenshots, annotate them with personal design notes, and export them as a ready-to-use **Claude Agent Skill** folder (`SKILL.md` + reference index + sliced images).
+A local tool for UI designers to collect websites they admire as clean section screenshots plus notes, and export the library as a ready-to-use **Claude Agent Skill** so coding agents generate tasteful, distinctive interfaces instead of generic templates.
 
 ---
 
-## Architecture Overview
+## What It Is
 
-Taste is built as a local-first application with a decoupled backend and React frontend:
-
-```text
-├── data/                          # Local SQLite DB and screenshot captures (git-ignored)
-│   ├── screenshots/<id>/          # full.png and card thumb.png
-│   └── taste.db                   # SQLite database (better-sqlite3)
-├── src/                           # Backend (Node.js + Express + TypeScript)
-│   ├── capture/                   # Playwright capture engine & Sharp stitching
-│   │   ├── config.ts              # Viewport, scrolling, trust rules, and height caps
-│   │   ├── cookie-dismiss.ts      # Best-effort cookie consent banner dismissal
-│   │   ├── index.ts               # Dependable capture pipeline
-│   │   ├── cli.ts                 # Direct CLI runner (npm run capture -- <url>)
-│   │   ├── url-safety.ts          # SSRF protection and URL validation
-│   │   └── verify-playwright.ts   # Playwright Chromium diagnostic check
-│   ├── db/                        # Database layer
-│   │   ├── entries.ts             # Entries CRUD operations
-│   │   ├── index.ts               # DB schema auto-initialization
-│   │   └── settings.ts            # Global designer direction notes & preferences
-│   ├── services/
-│   │   ├── capture-service.ts     # Concurrency-controlled capture & atomic staging swap
-│   │   └── export-service.ts      # Claude skill ZIP generator & image segmenter
-│   └── server/                    # Express REST API endpoints
-├── web/                           # Frontend (React 19 + TypeScript + Vite + Tailwind CSS v4)
-│   ├── src/
-│   │   ├── api/client.ts          # Centralized API client
-│   │   ├── components/            # AddEntry, Library, NotesEditor, ExportModal
-│   │   ├── hooks/                 # TanStack Query hooks (useEntries, useEntry)
-│   │   ├── pages/                 # Library (/) and Detail (/entry/:id)
-│   │   └── index.css              # Warm archival theme tokens & Tailwind styles
-│   └── vite.config.ts             # Vite dev server proxying /api and /screenshots to Express
-├── scripts/
-│   └── recapture-existing.ts      # One-off recapture script for existing entries
-├── .env.example                   # Environment variable template
-├── package.json
-└── README.md
-```
+When AI coding agents design web interfaces, they often fall back on generic templates, harsh gradients, or cliché card layouts. **Taste** allows you to:
+1. **Curate reference websites**: Capture sites automatically section-by-section, or bring your own screenshots via drag-and-drop, clipboard paste, or file upload.
+2. **Annotate with design rationale**: Write short notes highlighting what makes each design exceptional (typography, spacing, layout, color palette).
+3. **Export as an AI agent skill**: Generate a structured `designer-taste-library` folder in Claude skill format that any AI coding agent can read to guide its UI generation.
 
 ---
 
-## Prerequisites
+## Setup & Prerequisites
 
 - **Node.js** v20+
 - **npm** v10+
-- Playwright Chromium browser installed
 
----
-
-## Installation & Setup
+### Installation
 
 1. **Install backend dependencies**:
    ```bash
@@ -69,140 +32,87 @@ Taste is built as a local-first application with a decoupled backend and React f
    cd ..
    ```
 
-3. **Install Playwright's Chromium browser**:
+3. **Install Chromium for Playwright**:
    ```bash
    npx playwright install chromium
    ```
 
-4. **Environment Configuration** (optional):
-   Copy `.env.example` to `.env`:
-   ```bash
-   cp .env.example .env
-   ```
-   Available variables:
-   | Variable | Description | Default |
-   |---|---|---|
-   | `PORT` | Backend Express server port | `3000` |
-
 ---
 
-## Running the Servers
+## Running the Application
 
-### Development (Single Command — Recommended)
-
-Run both the Express backend and the Vite frontend concurrently with color-coded, labeled output:
+Start both the backend API and the frontend application with a single command:
 
 ```bash
 npm run dev:all
 ```
 
-- **Backend API**: `http://localhost:3000` (`[api]`)
-- **Frontend App**: `http://localhost:5173` (`[web]`)
-
-Pressing `Ctrl+C` will cleanly terminate both servers.
-
-### Alternative (Two-Terminal Fallback)
-
-If you prefer running each server in its own terminal window:
-
-1. **Terminal 1 — Backend**:
-   ```bash
-   npm run dev
-   ```
-
-2. **Terminal 2 — Frontend**:
-   ```bash
-   cd web
-   npm run dev
-   ```
-
-Open **`http://localhost:5173`** in your browser.
-
-### Production Build
-
-```bash
-# Build backend
-npm run build
-
-# Build frontend
-cd web
-npm run build
-cd ..
-
-# Run compiled server (serves web/dist production bundle directly)
-npm run start
-```
-
-### CLI Capture (Without Frontend)
-
-You can capture any website directly from your terminal:
-```bash
-npm run capture -- https://example.com
-```
+- **Frontend App**: [http://localhost:5173](http://localhost:5173)
+- **Backend API**: [http://localhost:3000](http://localhost:3000)
 
 ---
 
-## Core Features
+## How It Works
 
-### 1. Dependable Full-Page Capture
-Every website produces exactly one reliable full-page image (`full.png`) and a small top-cropped card thumbnail (`thumb.png`):
-- **Smooth-Scroll & Motion Settle**: Emulates real mouse-wheel input and waits for smooth-scroll libraries and animations to settle.
-- **Native Trust Evaluation**: Validates the native full-page capture against measured document height and a region-by-region content check.
-- **Sharp Stitching Engine**:
-  - **Scrolling Sites**: Overlays frames at their recorded scroll offsets, hiding fixed/sticky navigation elements after frame 1 to avoid repeated headers.
-  - **Scroll-Locked / Virtual Sites**: Evaluates frame differences with block-level comparison, discards static/duplicate states, and stacks unique views sequentially.
-- **Height Caps**: Applies a Chromium native cap (16,200px) and a higher stitched cap (32,000px) so long sites are never truncated.
-- **Atomic Swap on Recapture**: Staged captures are verified before swapping in, ensuring a failed capture never corrupts existing screenshots.
+### 1. Section-by-Section Auto-Capture
 
-### 2. Notes-Only Detail Page
-- Focused, distraction-free view showing the full-page capture, source link, captured date, and notes panel.
-- Plain textarea titled **Notes** for recording architectural, typographic, or layout observations.
-- Auto-saves on blur with subtle visual status feedback (*Saving...* / *Saved*).
+Auto-capture produces clean, separate images—one per section—rather than a single giant image:
+- **Headless Chromium at 1440×900**: Opens the page, settles network activity, and dismisses cookie consent dialogs.
+- **Natural mouse-wheel scrolling**: Scrolls down in viewport-height steps (900px), with a brief pause for lazy content to decode and scroll animations to settle (wait capped at 2s per step; never stalls on looping canvas or video).
+- **Distance-based end-of-page detection**: After capturing a section at scroll position `s`, the engine computes the remaining new content: `min(viewportHeight, docHeight - (s + viewportHeight))`.
+  - If `< 150px`: Capture stops immediately.
+  - If `>= 150px` and `< 900px`: The final bottom frame is captured and cropped strictly to the new content region with Sharp, ensuring zero duplicate content.
+- **Scroll-lock & virtual-scroll support**: For sites where `scrollY` does not change, consecutive identical frame deduplication stops capture cleanly once the page stops updating.
+- **Safety limits**: Generous limits of 200 steps and 5 minutes prevent infinite-scrolling pages from running indefinitely. If hit, the entry notes `"Stopped early after N sections; the page continued."` (or `"to avoid an endless page"` if document height kept expanding).
 
-### 3. Library Grid & Multi-Select Export
-- Responsive card grid displaying card thumbnails, hostname, and short notes preview.
-- Multi-select checkboxes for batch-exporting selected references into a custom agent skill.
+### 2. Bring Your Own Screenshots
+
+Bring your own screenshots via:
+- **Clipboard paste**: Press `Ctrl+V` anywhere on the page to paste captured screenshots.
+- **Drag and drop**: Drop one or more image files directly onto the input zone.
+- **File picker**: Click "Upload" to select multiple PNG, JPEG, or WebP files.
+- **URL optional**: You can provide an optional source URL alongside uploaded screenshots.
+- **Integrity verification**: All uploaded files are decoded and verified using Sharp before storage. Server-generated filenames prevent collision and path traversal.
+
+### 3. Entry Management
+
+- **Detail view**: View all section screenshots in order vertically.
+- **Quick notes**: A focused notes panel that automatically saves on blur with a "Saved" indicator.
+- **Editable title**: Click the title to edit inline; press `Enter` to save.
+- **Append / Delete**: Add additional screenshots to an existing entry or delete individual section images with automatic position compaction.
 
 ### 4. Claude Agent Skill Export
-Turn your curated references into a ZIP bundle (`taste-skill.zip`) structured specifically for AI coding agents:
 
-```text
-taste-skill.zip
-└── designer-taste-library/
-    ├── SKILL.md                     # Agent frontmatter & instructions
-    ├── references/
-    │   ├── index.md                 # Flat reference index
-    │   └── entries/
-    │       └── <slug>.md            # Source URL, designer notes, sliced visuals
-    └── assets/
-        └── <slug>/
-            ├── full-segment-01.jpg  # Sliced full-page segments (~900px height)
-            └── full-segment-02.jpg
-```
+Click **Export Skill** in the header or selection toolbar to package your library:
+- **Scope**: Export the entire library or only selected entries.
+- **Designer direction notes**: Optional high-level aesthetic notes injected directly into `SKILL.md`.
+- **Image optimization**: Images are converted to max-width 1280px JPEG (quality 88, 4:4:4 chroma for crisp typography) without vertical slicing.
+- **Directory structure**:
+  ```text
+  designer-taste-library/
+  ├── SKILL.md                 # Agent instructions & optional direction notes
+  ├── references/
+  │   ├── index.md             # Alphabetical reference index with URLs and note snippets
+  │   └── entries/
+  │       └── <slug>.md        # Individual entry notes & image references
+  └── assets/
+      └── <slug>/
+          ├── 01.jpg
+          ├── 02.jpg
+          └── ...
+  ```
 
-- **Anthropic ZIP Compliance**: All skill files are nested under the required single root folder (`designer-taste-library/`).
-- **Image Slicing**: Slices long full-page screenshots into manageable segments for AI vision ingestion.
-- **Optional Direction Notes**: Injects high-level design principles into `SKILL.md` (omitted if left empty).
+### Installing the Exported Skill
 
----
-
-## Using the Exported Skill
-
-To use this skill, add the downloaded ZIP in the Claude app's skills settings. The archive contains the `designer-taste-library` skill folder with `SKILL.md`, references, and sliced visual assets.
-
----
-
-## API Reference
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/health` | Health check endpoint (`{ ok: true }`) |
-| `GET` | `/api/entries` | List all library entries |
-| `POST` | `/api/entries` | Capture and save a new entry (`{ url: string, force?: boolean, notes?: string }`) |
-| `GET` | `/api/entries/:id` | Fetch single entry |
-| `PATCH` | `/api/entries/:id` | Update entry notes (`{ notes?: string }`) |
-| `DELETE` | `/api/entries/:id` | Delete entry from database and remove its screenshot folder |
-| `POST` | `/api/export` | Download Claude skill ZIP (`{ scope, entryIds?, directionNotes? }`) |
-| `GET` | `/api/settings/direction-notes` | Fetch global designer direction notes |
-| `PATCH` | `/api/settings/direction-notes` | Update global designer direction notes |
-| `GET` | `/screenshots/*` | Serve captured screenshot assets statically |
+- **Claude Code**: Unzip the archive directly into your skills directory:
+  ```bash
+  unzip designer-taste-library.zip -d ~/.claude/skills/
+  ```
+  Resulting structure:
+  ```text
+  ~/.claude/skills/designer-taste-library/
+    SKILL.md
+    references/
+    assets/
+  ```
+- **Claude App**: Add the downloaded ZIP in the application's skills settings.

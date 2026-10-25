@@ -5,15 +5,21 @@ import Header from "../components/common/Header";
 import Modal from "../components/common/Modal";
 import SectionList from "../components/entry-detail/ScreenshotViewer";
 import NotesEditor from "../components/entry-detail/NotesEditor";
+import AddImagesZone from "../components/entry-detail/AddImagesZone";
 import { useEntry } from "../hooks/useEntry";
+import { uploadImagesToEntry } from "../api/client";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function EntryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState("");
   const [deletingImageId, setDeletingImageId] = useState<string | null>(null);
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
 
   const {
     entry,
@@ -48,6 +54,20 @@ export default function EntryDetailPage() {
       alert(`Failed to delete image: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setDeletingImageId(null);
+    }
+  }
+
+  async function handleUploadMoreImages(files: File[]) {
+    if (!id || files.length === 0) return;
+    setIsUploadingImages(true);
+    try {
+      const updated = await uploadImagesToEntry(id, files);
+      queryClient.setQueryData(["entry", id], updated);
+      queryClient.invalidateQueries({ queryKey: ["entries"] });
+    } catch (err: unknown) {
+      alert(`Upload failed: ${err instanceof Error ? err.message : "Failed to upload screenshots."}`);
+    } finally {
+      setIsUploadingImages(false);
     }
   }
 
@@ -179,8 +199,11 @@ export default function EntryDetailPage() {
               )}
 
               {entry.images && entry.images.length === 1 && (
-                <div className="text-xs text-ink-tertiary font-mono pt-1">
-                  This page may not have captured fully. If it has an intro screen, take your own screenshots and add them here.
+                <div className="space-y-2 pt-2 pb-1">
+                  <p className="text-xs text-ink-secondary">
+                    This page may not have captured fully. If it has an intro screen, take your own screenshots and add them here:
+                  </p>
+                  <AddImagesZone onUpload={handleUploadMoreImages} isUploading={isUploadingImages} />
                 </div>
               )}
             </div>
@@ -188,13 +211,20 @@ export default function EntryDetailPage() {
             {/* Layout: Section images on left, Notes editor on right */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               {/* Vertical section screenshots */}
-              <div className="lg:col-span-8 order-2 lg:order-1">
+              <div className="lg:col-span-8 order-2 lg:order-1 space-y-6">
                 <SectionList
                   images={entry.images || []}
                   title={entry.title}
                   onDeleteImage={handleDeleteImage}
                   isDeletingImageId={deletingImageId}
                 />
+
+                {/* Add more images control at bottom of section list */}
+                {(!entry.images || entry.images.length !== 1) && (
+                  <div className="pt-2">
+                    <AddImagesZone onUpload={handleUploadMoreImages} isUploading={isUploadingImages} />
+                  </div>
+                )}
               </div>
 
               {/* Notes box */}

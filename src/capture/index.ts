@@ -8,10 +8,12 @@ export { CAPTURE_CONFIG } from "./config.js";
 
 export interface CapturedSection {
   index: number;
-  buffer: Buffer; // Compressed WebP
+  buffer: Buffer; // WebP buffer
   width: number;
   height: number;
   scrollY: number;
+  newContentHeight: number; // Height in px that this frame adds
+  isCropped?: boolean;
 }
 
 export type StopReason =
@@ -29,8 +31,11 @@ export interface SectionCaptureResult {
   keptCount: number;
   droppedCount: number;
   stopReason: StopReason;
+  stopReasonText: string | null;
   hitSafetyLimit: boolean;
   durationMs: number;
+  documentHeightAtStart: number;
+  documentHeightAtEnd: number;
 }
 
 export interface CaptureOptions {
@@ -98,7 +103,8 @@ async function computeMaxBlockDifference(
 }
 
 /**
- * Waits until images currently visible in the viewport have finished loading and decoding.
+ * Fast check: waits briefly for uncompleted <img> tags visible in the viewport to decode.
+ * NEVER waits on canvas, video, lottie, or looping animations.
  */
 async function waitForViewportImages(page: Page, maxWaitMs: number): Promise<void> {
   await page
@@ -109,23 +115,21 @@ async function waitForViewportImages(page: Page, maxWaitMs: number): Promise<voi
 
           const images = Array.from(document.querySelectorAll("img"));
           const vh = window.innerHeight;
-          const inViewportImages = images.filter((img) => {
+          const pendingImages = images.filter((img) => {
+            if (img.complete) return false;
             const rect = img.getBoundingClientRect();
             return rect.bottom >= 0 && rect.top <= vh && rect.width > 0 && rect.height > 0;
           });
 
-          if (inViewportImages.length === 0) {
+          if (pendingImages.length === 0) {
             clearTimeout(timer);
             resolve();
             return;
           }
 
-          const pending = inViewportImages.map((img) => {
-            if (img.complete) {
-              if (typeof img.decode === "function") {
-                return img.decode().catch(() => {});
-              }
-              return Promise.resolve();
+          const decodes = pendingImages.map((img) => {
+            if (typeof img.decode === "function") {
+              return img.decode().catch(() => {});
             }
             return new Promise<void>((imgResolve) => {
               img.addEventListener("load", () => imgResolve(), { once: true });
@@ -133,7 +137,7 @@ async function waitForViewportImages(page: Page, maxWaitMs: number): Promise<voi
             });
           });
 
-          Promise.all(pending).then(() => {
+          Promise.all(decodes).then(() => {
             clearTimeout(timer);
             resolve();
           });
@@ -144,40 +148,30 @@ async function waitForViewportImages(page: Page, maxWaitMs: number): Promise<voi
 }
 
 /**
- * Waits until document height and scroll position are stationary.
+ * Fast settle check: waits for document scroll position to become stationary.
  */
 async function waitForScrollSettle(page: Page, maxWaitMs: number): Promise<void> {
   const startTime = Date.now();
   let prevScrollY = -1;
-  let prevHeight = -1;
 
   while (Date.now() - startTime < maxWaitMs) {
-    const metrics = await page
-      .evaluate(() => ({
-        scrollY: window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0,
-        height: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
-      }))
+    const currentY = await page
+      .evaluate(() => window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0)
       .catch(() => null);
 
-    if (!metrics) break;
+    if (currentY === null) break;
 
-    if (
-      prevScrollY !== -1 &&
-      Math.abs(metrics.scrollY - prevScrollY) < 2 &&
-      metrics.height === prevHeight
-    ) {
-      // Settled
+    if (prevScrollY !== -1 && Math.abs(currentY - prevScrollY) < 2) {
       break;
     }
 
-    prevScrollY = metrics.scrollY;
-    prevHeight = metrics.height;
-    await page.waitForTimeout(100).catch(() => {});
+    prevScrollY = currentY;
+    await page.waitForTimeout(80).catch(() => {});
   }
 }
 
 /**
- * Executes section-by-section auto-capture.
+ * Executes section-by-section auto-capture with distance-based end-of-page rules and fast step timing.
  */
 export async function captureSections(
   inputUrl: string,
@@ -202,6 +196,10 @@ export async function captureSections(
   let consecutiveIdenticalCount = 0;
   let stopReason: StopReason = "page_end";
   let pageTitle = "";
+  let documentHeightAtStart = 0;
+  let documentHeightAtEnd = 0;
+  let documentHeightGrew = false;
+  let maxScrollY = 0;
 
   try {
     notify(`Launching headless Chromium (${cfg.VIEWPORT.width}x${cfg.VIEWPORT.height})...`);
@@ -237,43 +235,67 @@ export async function captureSections(
 
     // Ensure page starts at top
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(200);
 
-    // Position mouse cursor in center of viewport so mouse.wheel works
+    // Initial metrics
+    const initialMetrics = await page.evaluate(() => ({
+      scrollHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
+      clientHeight: window.innerHeight,
+    }));
+    documentHeightAtStart = initialMetrics.scrollHeight;
+
+    // Center mouse cursor for wheel events
     await page.mouse.move(cfg.VIEWPORT.width / 2, cfg.VIEWPORT.height / 2);
 
-    let reachedBottom = false;
+    let currentScrollY = 0;
 
-    while (!reachedBottom) {
+    while (true) {
       totalStepsTaken++;
 
-      // Check safety limits
+      // 1. Safety limit checks
       if (totalStepsTaken > cfg.SAFETY_LIMITS.MAX_TOTAL_STEPS) {
         stopReason = "safety_steps_limit";
-        notify(`Safety limit reached (${cfg.SAFETY_LIMITS.MAX_TOTAL_STEPS} steps max).`);
+        notify(`Safety step limit reached (${cfg.SAFETY_LIMITS.MAX_TOTAL_STEPS} steps).`);
         break;
       }
 
       if (Date.now() - startTime > cfg.SAFETY_LIMITS.MAX_CAPTURE_TIME_MS) {
         stopReason = "safety_time_limit";
-        notify(`Safety time limit reached (${cfg.SAFETY_LIMITS.MAX_CAPTURE_TIME_MS / 1000}s max).`);
+        notify(`Safety time limit reached (${cfg.SAFETY_LIMITS.MAX_CAPTURE_TIME_MS / 1000}s).`);
         break;
       }
 
-      // Wait for viewport images and scroll settle
+      // 2. Fast settle checks (capped budget per step)
+      const stepWaitStart = Date.now();
       await waitForViewportImages(page, cfg.IMAGE_DECODE_MAX_WAIT_MS);
       await waitForScrollSettle(page, cfg.SETTLE_MAX_WAIT_MS);
 
-      const currentScrollY = await page.evaluate(
+      currentScrollY = await page.evaluate(
         () => window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0
       );
 
-      // Take raw viewport screenshot
+      if (currentScrollY > maxScrollY) {
+        maxScrollY = currentScrollY;
+      }
+
+      const docMetrics = await page.evaluate(() => ({
+        scrollHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
+        clientHeight: window.innerHeight,
+      }));
+
+      if (docMetrics.scrollHeight > documentHeightAtStart + 1500) {
+        documentHeightGrew = true;
+      }
+
+      // 3. Take viewport screenshot
       const currentPngBuffer = await page.screenshot({ fullPage: false });
 
-      // Frame deduplication check
+      // 4. Distinct check
+      const documentActuallyScrolls = maxScrollY > 50;
       let isDistinct = true;
-      if (previousKeptPngBuffer !== null) {
+
+      // On scroll-locked/virtual-scroll sites where scrollY stays 0, use pixel block diff
+      if (!documentActuallyScrolls && previousKeptPngBuffer !== null) {
         const diff = await computeMaxBlockDifference(
           currentPngBuffer,
           previousKeptPngBuffer,
@@ -292,7 +314,6 @@ export async function captureSections(
         consecutiveIdenticalCount = 0;
         previousKeptPngBuffer = currentPngBuffer;
 
-        // Convert to WebP for compact storage
         const webpBuffer = await sharp(currentPngBuffer)
           .webp({ quality: cfg.IMAGE_FORMAT.QUALITY, effort: cfg.IMAGE_FORMAT.EFFORT })
           .toBuffer();
@@ -304,9 +325,10 @@ export async function captureSections(
           width: cfg.VIEWPORT.width,
           height: cfg.VIEWPORT.height,
           scrollY: Math.round(currentScrollY),
+          newContentHeight: cfg.VIEWPORT.height,
         });
 
-        notify(`Captured section ${sectionIndex} at scrollY ${Math.round(currentScrollY)}px`);
+        notify(`Captured section ${sectionIndex} (scrollY: ${Math.round(currentScrollY)}px, adds ${cfg.VIEWPORT.height}px)`);
       } else {
         droppedCount++;
         consecutiveIdenticalCount++;
@@ -316,94 +338,97 @@ export async function captureSections(
 
         if (consecutiveIdenticalCount >= cfg.CONSECUTIVE_IDENTICAL_LIMIT) {
           stopReason = "consecutive_identical";
-          notify(`Stopped after ${cfg.CONSECUTIVE_IDENTICAL_LIMIT} consecutive identical frames.`);
+          notify(`Page stopped changing after ${cfg.CONSECUTIVE_IDENTICAL_LIMIT} identical steps.`);
           break;
         }
       }
 
-      // Check if page end is reached
-      const metrics = await page.evaluate(() => ({
-        scrollY: window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0,
-        scrollHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
-        clientHeight: window.innerHeight,
-      }));
+      // 5. Check end-of-page rule using scroll distance
+      const remainingDocContent = docMetrics.scrollHeight - (currentScrollY + cfg.VIEWPORT.height);
 
-      if (metrics.scrollY + metrics.clientHeight >= metrics.scrollHeight - 5) {
-        reachedBottom = true;
+      if (remainingDocContent < cfg.NEW_CONTENT_MIN_PX) {
+        // Less than 150px remaining: stop. Capture nothing more.
         stopReason = "page_end";
+        notify(`Page end reached (only ${Math.round(remainingDocContent)}px remaining < ${cfg.NEW_CONTENT_MIN_PX}px threshold).`);
         break;
       }
 
-      // Scroll down by one viewport step using mouse wheel
-      await page.mouse.wheel(0, cfg.SCROLL_STEP_PX);
-      await page.waitForTimeout(cfg.PAUSE_PER_STEP_MS);
+      if (remainingDocContent < cfg.VIEWPORT.height) {
+        // Between 150px and 899px remaining: clamped final bottom scroll
+        const newContentHeight = Math.round(remainingDocContent);
+        notify(
+          `Final bottom scroll: ${newContentHeight}px new content remaining (>= ${cfg.NEW_CONTENT_MIN_PX}px). Capturing cropped bottom frame...`
+        );
 
-      const afterScrollY = await page.evaluate(
-        () => window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0
-      );
-
-      // Fallback scroll if mouse wheel didn't scroll document (e.g. non-focusable container)
-      if (Math.abs(afterScrollY - currentScrollY) < 2) {
-        await page.evaluate((stepPx) => window.scrollBy(0, stepPx), cfg.SCROLL_STEP_PX);
-        await page.waitForTimeout(cfg.PAUSE_PER_STEP_MS);
-      }
-    }
-
-    // Bottom frame logic:
-    // "Take an extra bottom frame only if lastScrollY + viewportHeight < documentScrollHeight - 150. Otherwise skip it."
-    if (stopReason === "page_end") {
-      const finalMetrics = await page.evaluate(() => ({
-        scrollY: window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0,
-        scrollHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
-        clientHeight: window.innerHeight,
-      }));
-
-      if (
-        finalMetrics.scrollY + finalMetrics.clientHeight <
-        finalMetrics.scrollHeight - cfg.BOTTOM_FRAME_THRESHOLD_PX
-      ) {
-        notify("Taking final bottom frame to include footer...");
         await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" }));
         await page.waitForTimeout(cfg.PAUSE_PER_STEP_MS);
         await waitForViewportImages(page, cfg.IMAGE_DECODE_MAX_WAIT_MS);
 
         const bottomPngBuffer = await page.screenshot({ fullPage: false });
-        let isBottomDistinct = true;
-        if (previousKeptPngBuffer !== null) {
-          const diff = await computeMaxBlockDifference(
-            bottomPngBuffer,
-            previousKeptPngBuffer,
-            cfg.DEDUPLICATION.THUMB_WIDTH,
-            cfg.DEDUPLICATION.THUMB_HEIGHT,
-            cfg.DEDUPLICATION.BLOCK_SIZE_X,
-            cfg.DEDUPLICATION.BLOCK_SIZE_Y
-          );
-          if (diff < cfg.DEDUPLICATION.DIFF_THRESHOLD) {
-            isBottomDistinct = false;
-          }
-        }
 
-        if (isBottomDistinct) {
-          const webpBuffer = await sharp(bottomPngBuffer)
-            .webp({ quality: cfg.IMAGE_FORMAT.QUALITY, effort: cfg.IMAGE_FORMAT.EFFORT })
-            .toBuffer();
-
-          const sectionIndex = sections.length + 1;
-          sections.push({
-            index: sectionIndex,
-            buffer: webpBuffer,
+        // Crop to only the new region (the bottom part of that screenshot)
+        const cropTop = cfg.VIEWPORT.height - newContentHeight;
+        const croppedWebpBuffer = await sharp(bottomPngBuffer)
+          .extract({
+            left: 0,
+            top: cropTop,
             width: cfg.VIEWPORT.width,
-            height: cfg.VIEWPORT.height,
-            scrollY: Math.round(finalMetrics.scrollHeight - finalMetrics.clientHeight),
-          });
-          notify(`Captured final bottom section ${sectionIndex}`);
-        } else {
-          droppedCount++;
-        }
+            height: newContentHeight,
+          })
+          .webp({ quality: cfg.IMAGE_FORMAT.QUALITY, effort: cfg.IMAGE_FORMAT.EFFORT })
+          .toBuffer();
+
+        const sectionIndex = sections.length + 1;
+        sections.push({
+          index: sectionIndex,
+          buffer: croppedWebpBuffer,
+          width: cfg.VIEWPORT.width,
+          height: newContentHeight,
+          scrollY: Math.round(docMetrics.scrollHeight - newContentHeight),
+          newContentHeight: newContentHeight,
+          isCropped: true,
+        });
+
+        notify(`Captured final bottom section ${sectionIndex} (cropped to ${newContentHeight}px, zero duplicate content).`);
+        stopReason = "page_end";
+        break;
+      }
+
+      // 6. Scroll down by one viewport step
+      const stepRemainingWait = Math.max(0, cfg.MAX_STEP_WAIT_MS - (Date.now() - stepWaitStart));
+      const pauseDuration = Math.min(cfg.PAUSE_PER_STEP_MS, stepRemainingWait);
+
+      await page.mouse.wheel(0, cfg.SCROLL_STEP_PX);
+      await page.waitForTimeout(pauseDuration);
+
+      const afterScrollY = await page.evaluate(
+        () => window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0
+      );
+
+      // Fallback scroll if mouse wheel did not scroll the window
+      if (Math.abs(afterScrollY - currentScrollY) < 2) {
+        await page.evaluate((stepPx) => window.scrollBy(0, stepPx), cfg.SCROLL_STEP_PX);
+        await page.waitForTimeout(200);
       }
     }
 
-    notify(`Auto-capture complete: ${sections.length} kept, ${droppedCount} dropped. Reason: ${stopReason}`);
+    // Measure final document height
+    const finalMetrics = await page.evaluate(() => ({
+      scrollHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
+    }));
+    documentHeightAtEnd = finalMetrics.scrollHeight;
+
+    // Format stop reason text
+    let stopReasonText: string | null = null;
+    if (stopReason === "safety_steps_limit" || stopReason === "safety_time_limit") {
+      if (documentHeightGrew) {
+        stopReasonText = `Stopped early after ${sections.length} sections to avoid an endless page`;
+      } else {
+        stopReasonText = `Stopped early after ${sections.length} sections; the page continued.`;
+      }
+    }
+
+    notify(`Auto-capture finished: ${sections.length} kept, ${droppedCount} dropped. Reason: ${stopReason}`);
 
     return {
       captureId,
@@ -414,8 +439,11 @@ export async function captureSections(
       keptCount: sections.length,
       droppedCount,
       stopReason,
+      stopReasonText,
       hitSafetyLimit: stopReason === "safety_steps_limit" || stopReason === "safety_time_limit",
       durationMs: Date.now() - startTime,
+      documentHeightAtStart,
+      documentHeightAtEnd,
     };
   } finally {
     if (browser) {

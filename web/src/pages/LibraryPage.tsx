@@ -131,6 +131,8 @@ export default function LibraryPage() {
         selectedCount={selectedIds.size}
         selectedIds={Array.from(selectedIds)}
         initialScope={exportInitialScope}
+        totalImagesCount={entries.reduce((sum, e) => sum + (e.images?.length || 0), 0)}
+        selectedImagesCount={entries.filter((e) => selectedIds.has(e.id)).reduce((sum, e) => sum + (e.images?.length || 0), 0)}
       />
     </div>
   );
