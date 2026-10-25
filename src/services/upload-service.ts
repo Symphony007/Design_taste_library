@@ -16,7 +16,7 @@ export const UPLOAD_LIMITS = {
   MAX_FILE_SIZE_BYTES: 25 * 1024 * 1024, // 25 MB per file
   MAX_TOTAL_UPLOAD_BYTES: 100 * 1024 * 1024, // 100 MB total per upload request
   ALLOWED_FORMATS: ["png", "jpeg", "webp"] as const,
-  WEBP_QUALITY: 82,
+  WEBP_QUALITY: 92,
 } as const;
 
 export class UploadError extends Error {

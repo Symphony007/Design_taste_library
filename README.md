@@ -104,15 +104,6 @@ Click **Export Skill** in the header or selection toolbar to package your librar
 
 ### Installing the Exported Skill
 
-- **Claude Code**: Unzip the archive directly into your skills directory:
-  ```bash
-  unzip designer-taste-library.zip -d ~/.claude/skills/
-  ```
-  Resulting structure:
-  ```text
-  ~/.claude/skills/designer-taste-library/
-    SKILL.md
-    references/
-    assets/
-  ```
-- **Claude App**: Add the downloaded ZIP in the application's skills settings.
+- **Claude Code**: Unzip into `~/.claude/skills/`.
+- **Claude App**: Add the ZIP in the app's skills settings.
+

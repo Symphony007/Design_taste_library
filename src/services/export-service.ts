@@ -117,12 +117,12 @@ description: A curated library of reference website designs, visual styles, typo
 
 # Design Taste & Reference Library
 
-This skill provides a curated reference library representing the designer's personal taste and aesthetic standards. Use these references to guide your UI and web application designs.
+This skill provides a curated reference library representing the designer's personal taste and aesthetic standards. Each entry is a top-to-bottom sequence of section screenshots of one site, to be read in order. Use these references to guide your UI and web application designs.
 ${directionSection}
 ## Instructions for AI Agents
 When tasked with designing, building, or styling web interfaces:
 1. **Explore References First**: Read \`references/index.md\` first. Open only the few most relevant entries rather than all of them.
-2. **Study, Don't Blindly Copy**: Analyze the reference images in \`assets/\` and read the architectural notes in \`references/entries/\`. Study layout, typography, color, spacing, and structure instead of copying.
+2. **Study, Don't Blindly Copy**: Analyze the reference images in \`assets/\` and read the architectural notes in \`references/entries/\`. Each entry is a top-to-bottom sequence of section screenshots of one site, to be read in order. Study layout, typography, color, spacing, and structure instead of copying.
 3. **Avoid Generic AI Patterns**:
    - Do NOT use generic gradients (e.g. purple-to-blue hero glows).
    - Do NOT build clichéd template cards or floating glass cards unless the reference specifically calls for it.

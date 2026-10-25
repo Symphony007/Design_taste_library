@@ -54,8 +54,8 @@ export const CAPTURE_CONFIG = {
 
   // Compression format for stored sections
   IMAGE_FORMAT: {
-    QUALITY: 82,
-    EFFORT: 4,
+    QUALITY: 92,
+    EFFORT: 3,
   },
 } as const;
 

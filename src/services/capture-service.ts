@@ -44,6 +44,45 @@ export interface CaptureAndCreateOptions {
   onProgress?: (msg: string) => void;
 }
 
+function mapCaptureError(err: any): { message: string; statusCode: number } {
+  const msg = (err?.message || "").toLowerCase();
+
+  // Unreachable / DNS / Connection failure
+  if (
+    msg.includes("err_name_not_resolved") ||
+    msg.includes("err_connection_refused") ||
+    msg.includes("err_connection_timed_out") ||
+    msg.includes("err_address_unreachable") ||
+    msg.includes("enotfound") ||
+    msg.includes("econnrefused")
+  ) {
+    return { message: "Couldn't reach that site", statusCode: 502 };
+  }
+
+  // Timeout
+  if (msg.includes("timeout") || msg.includes("timeouterror")) {
+    return { message: "The page took too long to load", statusCode: 504 };
+  }
+
+  // Blocked / Forbidden / Access denied
+  if (
+    msg.includes("err_blocked_by_client") ||
+    msg.includes("err_access_denied") ||
+    msg.includes("403") ||
+    msg.includes("cloudflare") ||
+    msg.includes("captcha")
+  ) {
+    return { message: "That page blocked the capture", statusCode: 502 };
+  }
+
+  // SSL Certificate issue
+  if (msg.includes("err_cert_") || msg.includes("err_ssl_")) {
+    return { message: "The site's security certificate is invalid", statusCode: 502 };
+  }
+
+  return { message: "Failed to load and capture page", statusCode: 502 };
+}
+
 export async function captureAndCreateEntry(
   rawUrl: string,
   options?: CaptureAndCreateOptions
@@ -153,12 +192,10 @@ export async function captureAndCreateEntry(
 
     return { entry, captureResult };
   } catch (err: any) {
-    console.error(`[Capture Error] Failed capturing ${rawUrl}:`, err);
+    console.error(`[Capture Error] Raw error for ${rawUrl}:`, err);
     if (err instanceof ServiceError) throw err;
-    throw new ServiceError(
-      `Capture failed: ${err.message || "Failed to load and capture page."}`,
-      502
-    );
+    const mapped = mapCaptureError(err);
+    throw new ServiceError(mapped.message, mapped.statusCode);
   } finally {
     isCapturing = false;
     // Clean up staging directory if it still exists

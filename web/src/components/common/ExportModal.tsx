@@ -156,22 +156,16 @@ export default function ExportModal({
         </div>
 
         {/* Install instructions */}
-        <div className="p-3 bg-surface border border-border rounded-sm space-y-2 text-xs text-ink-secondary">
+        <div className="p-3 bg-surface border border-border rounded-sm space-y-1.5 text-xs text-ink-secondary">
           <div className="flex items-center gap-2 text-ink font-medium">
             <Info size={14} className="text-accent shrink-0" />
-            <span>How to install this skill:</span>
+            <span>How to install:</span>
           </div>
-          <div className="space-y-1.5 text-[11px] leading-relaxed pl-5">
+          <div className="space-y-1 text-[11px] leading-relaxed pl-5">
             <div>
-              <strong className="text-ink">Claude Code:</strong> Unzip into <code className="font-mono bg-surface-elevated px-1 py-0.5 border border-border rounded text-ink">~/.claude/skills/</code>. Resulting layout:
-              <pre className="mt-1 p-2 bg-surface-elevated border border-border rounded font-mono text-[10px] text-ink leading-tight">
-{`~/.claude/skills/designer-taste-library/
-  SKILL.md
-  references/
-  assets/`}
-              </pre>
+              <strong className="text-ink">Claude Code:</strong> Unzip into <code className="font-mono bg-surface-elevated px-1 py-0.5 border border-border rounded text-ink">~/.claude/skills/</code>.
             </div>
-            <div className="pt-1">
+            <div>
               <strong className="text-ink">Claude app:</strong> Add the ZIP in the app's skills settings.
             </div>
           </div>
