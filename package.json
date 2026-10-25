@@ -10,7 +10,8 @@
     "build": "tsc",
     "start": "node dist/server/index.js",
     "capture": "tsx src/capture/cli.ts",
-    "check:playwright": "tsx src/capture/verify-playwright.ts"
+    "check:playwright": "tsx src/capture/verify-playwright.ts",
+    "check:images": "node test-image-proxy.js"
   },
   "dependencies": {
     "@types/multer": "^2.3.0",

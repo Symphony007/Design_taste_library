@@ -1,17 +1,19 @@
 import { Link } from "react-router-dom";
-import { Check } from "lucide-react";
+import { Check, Trash2 } from "lucide-react";
 import type { Entry } from "../../types/entry";
 
 interface EntryCardProps {
   entry: Entry;
   isSelected?: boolean;
   onToggleSelect?: (id: string) => void;
+  onDelete?: (id: string, title: string) => void;
 }
 
 export default function EntryCard({
   entry,
   isSelected = false,
   onToggleSelect,
+  onDelete,
 }: EntryCardProps) {
   let hostname = "";
   if (entry.source_url) {
@@ -48,6 +50,23 @@ export default function EntryCard({
           }`}
         >
           <Check size={13} className={isSelected ? "opacity-100" : "opacity-0"} />
+        </button>
+      )}
+
+      {/* Delete button on hover */}
+      {onDelete && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onDelete(entry.id, entry.title);
+          }}
+          aria-label={`Delete ${entry.title}`}
+          title="Delete entry"
+          className="absolute top-2.5 right-2.5 z-10 w-6 h-6 rounded-sm flex items-center justify-center border border-border bg-surface/90 backdrop-blur text-ink-tertiary hover:text-danger hover:border-danger/40 opacity-0 group-hover:opacity-100 transition-all"
+        >
+          <Trash2 size={12} />
         </button>
       )}
 

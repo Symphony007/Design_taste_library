@@ -4,13 +4,18 @@ import AddEntryBar from "../components/add-entry/AddEntryBar";
 import EntryGrid from "../components/library/EntryGrid";
 import EmptyState from "../components/library/EmptyState";
 import ExportModal from "../components/common/ExportModal";
+import Modal from "../components/common/Modal";
 import { useEntries } from "../hooks/useEntries";
-import { Loader2, Download, X, CheckSquare } from "lucide-react";
+import { deleteEntry } from "../api/client";
+import { Loader2, Download, X, CheckSquare, Trash2 } from "lucide-react";
 
 export default function LibraryPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportInitialScope, setExportInitialScope] = useState<"all" | "selected">("all");
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [entriesToDelete, setEntriesToDelete] = useState<Array<{ id: string; title: string }>>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const { entries, isLoading, isError, error, refetch } = useEntries();
 
@@ -21,6 +26,41 @@ export default function LibraryPage() {
       else next.add(id);
       return next;
     });
+  }
+
+  function handleRequestDeleteSingle(id: string, title: string) {
+    setEntriesToDelete([{ id, title }]);
+    setDeleteModalOpen(true);
+  }
+
+  function handleRequestDeleteSelected() {
+    const selected = entries
+      .filter((e) => selectedIds.has(e.id))
+      .map((e) => ({ id: e.id, title: e.title }));
+    if (selected.length === 0) return;
+    setEntriesToDelete(selected);
+    setDeleteModalOpen(true);
+  }
+
+  async function handleConfirmDelete() {
+    setIsDeleting(true);
+    try {
+      await Promise.all(entriesToDelete.map((e) => deleteEntry(e.id)));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const e of entriesToDelete) {
+          next.delete(e.id);
+        }
+        return next;
+      });
+      setDeleteModalOpen(false);
+      setEntriesToDelete([]);
+      refetch();
+    } catch (err: unknown) {
+      alert(`Failed to delete: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setIsDeleting(false);
+    }
   }
 
   function handleSelectAll() {
@@ -75,12 +115,13 @@ export default function LibraryPage() {
               entries={entries}
               selectedIds={selectedIds}
               onToggleSelect={handleToggleSelect}
+              onDeleteEntry={handleRequestDeleteSingle}
             />
           )}
         </section>
       </main>
 
-      {/* Floating Selection Bar for Export only */}
+      {/* Floating Selection Bar for Export & Bulk Delete */}
       {selectedIds.size > 0 && (
         <aside
           aria-label="Selection toolbar"
@@ -114,6 +155,18 @@ export default function LibraryPage() {
 
           <button
             type="button"
+            onClick={handleRequestDeleteSelected}
+            className="text-danger hover:text-danger/90 transition-colors flex items-center gap-1.5"
+            title="Delete selected entries"
+          >
+            <Trash2 size={13} />
+            <span>Delete</span>
+          </button>
+
+          <div className="h-4 w-px bg-surface/20" />
+
+          <button
+            type="button"
             onClick={() => handleOpenExport("selected")}
             className="bg-accent text-surface-elevated px-3 py-1.5 rounded-full hover:bg-accent/90 transition-colors flex items-center gap-1.5"
           >
@@ -134,6 +187,63 @@ export default function LibraryPage() {
         totalImagesCount={entries.reduce((sum, e) => sum + (e.images?.length || 0), 0)}
         selectedImagesCount={entries.filter((e) => selectedIds.has(e.id)).reduce((sum, e) => sum + (e.images?.length || 0), 0)}
       />
+
+      {/* Delete Confirmation Modal */}
+      <Modal open={deleteModalOpen} onClose={isDeleting ? () => {} : () => setDeleteModalOpen(false)}>
+        <div className="space-y-4">
+          <h3 className="text-base font-semibold text-ink">
+            {entriesToDelete.length === 1
+              ? "Delete this entry?"
+              : `Delete ${entriesToDelete.length} selected entries?`}
+          </h3>
+          <p className="text-xs text-ink-secondary leading-relaxed">
+            {entriesToDelete.length === 1 ? (
+              <>
+                This will permanently remove <span className="font-medium text-ink font-mono">{entriesToDelete[0]?.title}</span> along with all its section screenshots.
+              </>
+            ) : (
+              <>
+                This will permanently remove <strong className="text-ink">{entriesToDelete.length} entries</strong> along with all their section screenshots.
+              </>
+            )}
+            {" "}This action cannot be undone.
+          </p>
+
+          {entriesToDelete.length > 1 && (
+            <div className="max-h-28 overflow-y-auto p-2 bg-surface border border-border rounded text-[11px] font-mono text-ink-secondary space-y-1">
+              {entriesToDelete.map((e) => (
+                <div key={e.id} className="truncate">• {e.title}</div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-3 border-t border-border">
+            <button
+              type="button"
+              disabled={isDeleting}
+              onClick={() => setDeleteModalOpen(false)}
+              className="px-3.5 py-1.5 text-xs text-ink-secondary hover:text-ink border border-border rounded-sm transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={isDeleting}
+              onClick={handleConfirmDelete}
+              className="px-3.5 py-1.5 text-xs font-medium bg-danger text-surface-elevated rounded-sm hover:bg-danger/90 transition-colors flex items-center gap-1.5"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  <span>Deleting...</span>
+                </>
+              ) : (
+                <span>Delete</span>
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
