@@ -43,16 +43,14 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 // Serve stored images statically
 app.use("/images", express.static(IMAGES_DIR));
 
-// In production, serve the built Vite frontend from web/dist
-const isProduction =
-  process.env.NODE_ENV === "production" ||
-  Boolean(process.argv[1]?.includes(path.join("dist", "server")));
+// Serving the built frontend depends ONLY on NODE_ENV === 'production'
+const isProduction = process.env.NODE_ENV === "production";
 const WEB_DIST_DIR = path.resolve(process.cwd(), "web", "dist");
 
-if (isProduction && fs.existsSync(WEB_DIST_DIR)) {
+if (isProduction) {
   app.use(express.static(WEB_DIST_DIR));
 } else {
-  // Friendly response in dev
+  // Friendly response in dev (even after web/dist has been built)
   app.get("/", (_req: Request, res: Response) => {
     res.type("text/plain").send("Taste API is running. Open http://localhost:5173 for the app.");
   });
@@ -339,7 +337,7 @@ app.post("/api/export", async (req: Request, res: Response) => {
 });
 
 // Production SPA catch-all fallback
-if (isProduction && fs.existsSync(WEB_DIST_DIR)) {
+if (isProduction) {
   app.get("*", (req: Request, res: Response, next: express.NextFunction) => {
     if (req.path.startsWith("/api") || req.path.startsWith("/images")) {
       return next();
