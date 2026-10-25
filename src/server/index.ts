@@ -1,35 +1,29 @@
-import express, { Request, Response } from "express";
-import fs from "node:fs";
+import express, { type Request, type Response } from "express";
 import path from "node:path";
-import "../db/index.js";
 import {
-  deleteEntry,
-  getEntryById,
   listEntries,
+  getEntryById,
   updateEntry,
+  deleteEntry,
+  deleteImage,
   type Entry,
 } from "../db/entries.js";
+import { getDirectionNotes, setDirectionNotes } from "../db/settings.js";
 import {
   captureAndCreateEntry,
   ServiceError,
 } from "../services/capture-service.js";
-import { getDirectionNotes, setDirectionNotes } from "../db/settings.js";
 import { createExportArchive } from "../services/export-service.js";
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-const WEB_DIST_DIR = path.resolve(process.cwd(), "web", "dist");
-const SCREENSHOTS_DIR = path.resolve(process.cwd(), "data", "screenshots");
+const PORT = process.env.PORT || 3000;
+const IMAGES_DIR = path.resolve(process.cwd(), "data", "images");
 
-app.use(express.json());
+// Middleware
+app.use(express.json({ limit: "50mb" }));
 
-// Serve production frontend bundle from web/dist if built
-if (fs.existsSync(WEB_DIST_DIR)) {
-  app.use(express.static(WEB_DIST_DIR));
-}
-
-// Serve screenshots directory statically so images are reachable via /screenshots/...
-app.use("/screenshots", express.static(SCREENSHOTS_DIR));
+// Serve stored images statically
+app.use("/images", express.static(IMAGES_DIR));
 
 // Health check endpoint
 app.get("/api/health", (_req: Request, res: Response) => {
@@ -37,29 +31,33 @@ app.get("/api/health", (_req: Request, res: Response) => {
 });
 
 /**
- * Formats entry for client response, stripping unused fields and providing thumbnail URL.
+ * Formats entry for client response, providing thumbnail_url from first image.
  */
 function formatEntry(entry: Entry) {
-  const entryDir = path.resolve(SCREENSHOTS_DIR, entry.id);
-  const thumbPath = path.resolve(entryDir, "thumb.png");
-  const thumbExists = fs.existsSync(thumbPath);
+  const sortedImages = [...(entry.images || [])].sort((a, b) => a.position - b.position);
+  const firstImage = sortedImages[0];
 
   return {
     id: entry.id,
-    url: entry.url,
     title: entry.title,
+    source_url: entry.source_url,
     notes: entry.notes,
-    captured_at: entry.captured_at,
-    full_page_url: `/screenshots/${entry.id}/full.png`,
-    thumbnail_url: thumbExists
-      ? `/screenshots/${entry.id}/thumb.png`
-      : `/screenshots/${entry.id}/full.png`,
+    created_at: entry.created_at,
+    stop_reason: entry.stop_reason,
+    thumbnail_url: firstImage ? `/${firstImage.file_path}` : null,
+    images: sortedImages.map((img) => ({
+      id: img.id,
+      position: img.position,
+      url: `/${img.file_path}`,
+      width: img.width,
+      height: img.height,
+    })),
   };
 }
 
 /**
  * POST /api/entries
- * Takes { url: string, force?: boolean, notes?: string }
+ * Body: { url?: string, force?: boolean, notes?: string, title?: string }
  */
 app.post("/api/entries", async (req: Request, res: Response) => {
   const { url, force, notes } = req.body || {};
@@ -70,7 +68,7 @@ app.post("/api/entries", async (req: Request, res: Response) => {
   }
 
   try {
-    const entry = await captureAndCreateEntry(url, {
+    const { entry } = await captureAndCreateEntry(url, {
       force: Boolean(force),
       notes: typeof notes === "string" ? notes : undefined,
     });
@@ -89,14 +87,12 @@ app.post("/api/entries", async (req: Request, res: Response) => {
 
 /**
  * GET /api/entries
- * Returns a list of all entries, newest first.
+ * Returns list of entries, newest first.
  */
 app.get("/api/entries", (_req: Request, res: Response) => {
   try {
     const entries = listEntries();
-    const formatted = entries.map(formatEntry);
-
-    res.json({ entries: formatted });
+    res.json({ entries: entries.map(formatEntry) });
   } catch (err: any) {
     res.status(500).json({ error: `Failed to retrieve entries: ${err.message || err}` });
   }
@@ -104,7 +100,6 @@ app.get("/api/entries", (_req: Request, res: Response) => {
 
 /**
  * GET /api/entries/:id
- * Fetches one entry.
  */
 app.get("/api/entries/:id", (req: Request, res: Response) => {
   const id = String(req.params.id);
@@ -126,14 +121,15 @@ app.get("/api/entries/:id", (req: Request, res: Response) => {
 
 /**
  * PATCH /api/entries/:id
- * Updates notes.
+ * Updates title and/or notes.
  */
 app.patch("/api/entries/:id", (req: Request, res: Response) => {
   const id = String(req.params.id);
-  const { notes } = req.body || {};
+  const { title, notes } = req.body || {};
 
   try {
     const updated = updateEntry(id, {
+      title: typeof title === "string" ? title.trim() : undefined,
       notes: typeof notes === "string" ? notes : null,
     });
 
@@ -152,34 +148,46 @@ app.patch("/api/entries/:id", (req: Request, res: Response) => {
 
 /**
  * DELETE /api/entries/:id
- * Removes entry from database and removes its screenshot folder from disk.
+ * Removes entry and all its image files from disk.
  */
 app.delete("/api/entries/:id", (req: Request, res: Response) => {
   const id = String(req.params.id);
 
   try {
-    const entry = getEntryById(id);
-    if (!entry) {
+    const success = deleteEntry(id);
+    if (!success) {
       res.status(404).json({ error: `Entry '${id}' not found.` });
       return;
     }
 
-    // 1. Delete from database
-    deleteEntry(id);
-
-    // 2. Delete screenshot files and folder from disk
-    const captureDir = path.resolve(SCREENSHOTS_DIR, id);
-    if (fs.existsSync(captureDir)) {
-      try {
-        fs.rmSync(captureDir, { recursive: true, force: true });
-      } catch (rmErr: any) {
-        console.error(`Warning: could not delete files for entry '${id}':`, rmErr);
-      }
-    }
-
-    res.json({ ok: true, deletedId: id });
+    res.json({ success: true, message: `Entry '${id}' deleted.` });
   } catch (err: any) {
     res.status(500).json({ error: `Failed to delete entry '${id}': ${err.message || err}` });
+  }
+});
+
+/**
+ * DELETE /api/entries/:id/images/:imageId
+ * Deletes a single image, removes file from disk, and compacts remaining positions.
+ */
+app.delete("/api/entries/:id/images/:imageId", (req: Request, res: Response) => {
+  const entryId = String(req.params.id);
+  const imageId = String(req.params.imageId);
+
+  try {
+    const success = deleteImage(entryId, imageId);
+    if (!success) {
+      res.status(404).json({ error: `Image '${imageId}' not found on entry '${entryId}'.` });
+      return;
+    }
+
+    const updated = getEntryById(entryId);
+    res.json({
+      success: true,
+      entry: updated ? formatEntry(updated) : null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: `Failed to delete image: ${err.message || err}` });
   }
 });
 
@@ -205,7 +213,7 @@ app.patch("/api/settings/direction-notes", (req: Request, res: Response) => {
 
 /**
  * POST /api/export
- * Body: { scope?: 'all' | 'selected', entryIds?: string[], directionNotes?: string }
+ * Generates and downloads the ZIP skill archive.
  */
 app.post("/api/export", async (req: Request, res: Response) => {
   try {
@@ -234,13 +242,11 @@ app.post("/api/export", async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error("Export error:", err);
     if (!res.headersSent) {
-      res.status(500).json({ error: err.message || "Failed to generate export." });
+      res.status(500).json({ error: "Failed to export skill archive." });
     }
   }
 });
 
-export const server = app.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`Taste server running at http://localhost:${PORT}`);
 });
-
-export default app;

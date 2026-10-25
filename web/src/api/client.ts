@@ -85,6 +85,13 @@ export async function deleteEntry(id: string): Promise<void> {
   await request(`/entries/${id}`, { method: "DELETE" });
 }
 
+export async function deleteImage(entryId: string, imageId: string): Promise<Entry> {
+  const data = await request<EntryResponse>(`/entries/${entryId}/images/${imageId}`, {
+    method: "DELETE",
+  });
+  return data.entry;
+}
+
 /* ─── Settings & Export ─── */
 
 export interface ExportOptions {

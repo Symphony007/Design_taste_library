@@ -1,45 +1,45 @@
 import { chromium, type Browser, type Page } from "playwright";
-import fs from "node:fs";
-import path from "node:path";
 import sharp from "sharp";
 import { CAPTURE_CONFIG, type CaptureConfig } from "./config.js";
 import { dismissCookieBanner } from "./cookie-dismiss.js";
+import { isSafeUrl } from "./url-safety.js";
 
 export { CAPTURE_CONFIG } from "./config.js";
 
-export interface CaptureOptions {
-  config?: Partial<CaptureConfig>;
-  targetDir?: string;
-  onProgress?: (message: string) => void;
+export interface CapturedSection {
+  index: number;
+  buffer: Buffer; // Compressed WebP
+  width: number;
+  height: number;
+  scrollY: number;
 }
 
-export interface CaptureResult {
+export type StopReason =
+  | "page_end"
+  | "consecutive_identical"
+  | "safety_steps_limit"
+  | "safety_time_limit";
+
+export interface SectionCaptureResult {
   captureId: string;
   url: string;
   title: string;
-  fullPagePath: string;
-  thumbnailPath: string;
-  capturePathUsed: "native" | "stitched";
-  contentCheck: {
-    testedRegions: number;
-    mismatchedRegions: number;
-    passed: boolean;
-  };
-  framesKept?: number;
-  framesDropped?: number;
-  totalHeight: number;
-  isCapped: boolean;
-  capturedAt: string;
+  sections: CapturedSection[];
+  totalStepsTaken: number;
+  keptCount: number;
+  droppedCount: number;
+  stopReason: StopReason;
+  hitSafetyLimit: boolean;
+  durationMs: number;
 }
 
-interface StepFrame {
-  index: number;
-  scrollY: number;
-  buffer: Buffer;
+export interface CaptureOptions {
+  config?: Partial<CaptureConfig>;
+  onProgress?: (message: string) => void;
 }
 
 /**
- * Generates a clean, filesystem-safe capture ID based on timestamp and target domain.
+ * Generates a clean identifier for the capture session.
  */
 function generateCaptureId(rawUrl: string): string {
   const urlObj = new URL(rawUrl);
@@ -48,33 +48,14 @@ function generateCaptureId(rawUrl: string): string {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
   const now = new Date();
-  const timestamp = now.toISOString().replace(/[-:T]/g, "").slice(0, 14); // YYYYMMDDHHmmss
+  const timestamp = now.toISOString().replace(/[-:T]/g, "").slice(0, 14);
   const randomSuffix = Math.random().toString(36).substring(2, 6);
   return `${timestamp}-${hostSlug || "site"}-${randomSuffix}`;
 }
 
 /**
- * Validates the URL string. Throws descriptive error if invalid.
- */
-function validateUrl(inputUrl: string): string {
-  const trimmed = inputUrl.trim();
-  if (!trimmed) {
-    throw new Error("URL cannot be empty.");
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    throw new Error(`Invalid URL format: "${trimmed}". Please provide a full URL with http:// or https://`);
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error(`Unsupported protocol "${parsed.protocol}". URL must start with http:// or https://`);
-  }
-  return parsed.toString();
-}
-
-/**
- * Compares two image buffers downscaled to grayscale, calculating the maximum block difference.
+ * Compares two downscaled grayscale image buffers across grid blocks.
+ * Returns the maximum block average difference [0..1].
  */
 async function computeMaxBlockDifference(
   bufA: Buffer,
@@ -117,78 +98,110 @@ async function computeMaxBlockDifference(
 }
 
 /**
- * Compares a step frame against the corresponding region extracted from the native full-page capture.
- * Returns the mean normalized pixel difference [0..1].
+ * Waits until images currently visible in the viewport have finished loading and decoding.
  */
-async function compareRegionDifference(
-  stepBuffer: Buffer,
-  nativeBuffer: Buffer,
-  regionTop: number,
-  viewportWidth: number,
-  viewportHeight: number,
-  nativeTotalHeight: number,
-  thumbWidth: number,
-  thumbHeight: number
-): Promise<number> {
-  const safeTop = Math.max(0, Math.min(regionTop, nativeTotalHeight - viewportHeight));
-  const safeHeight = Math.min(viewportHeight, nativeTotalHeight - safeTop);
+async function waitForViewportImages(page: Page, maxWaitMs: number): Promise<void> {
+  await page
+    .evaluate(
+      (timeout) =>
+        new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, timeout);
 
-  if (safeHeight <= 10) {
-    return 1.0; // Out of bounds region considered completely different
-  }
+          const images = Array.from(document.querySelectorAll("img"));
+          const vh = window.innerHeight;
+          const inViewportImages = images.filter((img) => {
+            const rect = img.getBoundingClientRect();
+            return rect.bottom >= 0 && rect.top <= vh && rect.width > 0 && rect.height > 0;
+          });
 
-  try {
-    const nativeRegion = await sharp(nativeBuffer)
-      .extract({ left: 0, top: safeTop, width: viewportWidth, height: safeHeight })
-      .resize(thumbWidth, thumbHeight, { fit: "fill" })
-      .grayscale()
-      .raw()
-      .toBuffer();
+          if (inViewportImages.length === 0) {
+            clearTimeout(timer);
+            resolve();
+            return;
+          }
 
-    const stepThumb = await sharp(stepBuffer)
-      .resize(thumbWidth, thumbHeight, { fit: "fill" })
-      .grayscale()
-      .raw()
-      .toBuffer();
+          const pending = inViewportImages.map((img) => {
+            if (img.complete) {
+              if (typeof img.decode === "function") {
+                return img.decode().catch(() => {});
+              }
+              return Promise.resolve();
+            }
+            return new Promise<void>((imgResolve) => {
+              img.addEventListener("load", () => imgResolve(), { once: true });
+              img.addEventListener("error", () => imgResolve(), { once: true });
+            });
+          });
 
-    let sumDiff = 0;
-    const totalPixels = thumbWidth * thumbHeight;
-    for (let i = 0; i < totalPixels; i++) {
-      sumDiff += Math.abs(nativeRegion[i] - stepThumb[i]);
+          Promise.all(pending).then(() => {
+            clearTimeout(timer);
+            resolve();
+          });
+        }),
+      maxWaitMs
+    )
+    .catch(() => {});
+}
+
+/**
+ * Waits until document height and scroll position are stationary.
+ */
+async function waitForScrollSettle(page: Page, maxWaitMs: number): Promise<void> {
+  const startTime = Date.now();
+  let prevScrollY = -1;
+  let prevHeight = -1;
+
+  while (Date.now() - startTime < maxWaitMs) {
+    const metrics = await page
+      .evaluate(() => ({
+        scrollY: window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0,
+        height: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
+      }))
+      .catch(() => null);
+
+    if (!metrics) break;
+
+    if (
+      prevScrollY !== -1 &&
+      Math.abs(metrics.scrollY - prevScrollY) < 2 &&
+      metrics.height === prevHeight
+    ) {
+      // Settled
+      break;
     }
 
-    return sumDiff / (totalPixels * 255);
-  } catch {
-    return 1.0;
+    prevScrollY = metrics.scrollY;
+    prevHeight = metrics.height;
+    await page.waitForTimeout(100).catch(() => {});
   }
 }
 
 /**
- * Captures a website into exactly one reliable full-page screenshot and a card thumbnail.
+ * Executes section-by-section auto-capture.
  */
-export async function captureUrl(
+export async function captureSections(
   inputUrl: string,
   options?: CaptureOptions
-): Promise<CaptureResult> {
-  const targetUrl = validateUrl(inputUrl);
+): Promise<SectionCaptureResult> {
+  const check = isSafeUrl(inputUrl);
+  if (!check.safe || !check.url) {
+    throw new Error(check.reason || "Invalid or unsafe URL.");
+  }
+  const targetUrl = check.url.toString();
+
   const cfg = { ...CAPTURE_CONFIG, ...options?.config };
   const notify = options?.onProgress || (() => {});
-
+  const startTime = Date.now();
   const captureId = generateCaptureId(targetUrl);
-  const captureDir =
-    options?.targetDir || path.resolve(process.cwd(), cfg.OUTPUT_DIR, captureId);
-  const fullPagePath = path.resolve(captureDir, "full.png");
-  const thumbnailPath = path.resolve(captureDir, "thumb.png");
-
-  // Ensure output directory exists
-  fs.mkdirSync(captureDir, { recursive: true });
 
   let browser: Browser | null = null;
-  const stepFrames: StepFrame[] = [];
-  let isCapped = false;
-  let totalHeight = 0;
+  const sections: CapturedSection[] = [];
+  let previousKeptPngBuffer: Buffer | null = null;
+  let droppedCount = 0;
+  let totalStepsTaken = 0;
+  let consecutiveIdenticalCount = 0;
+  let stopReason: StopReason = "page_end";
   let pageTitle = "";
-  let maxScrollY = 0;
 
   try {
     notify(`Launching headless Chromium (${cfg.VIEWPORT.width}x${cfg.VIEWPORT.height})...`);
@@ -200,123 +213,145 @@ export async function captureUrl(
     const context = await browser.newContext({
       viewport: cfg.VIEWPORT,
       userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 TasteCapture/1.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 TasteCapture/2.0",
       deviceScaleFactor: 1,
     });
 
     const page: Page = await context.newPage();
 
     notify(`Navigating to ${targetUrl}...`);
-    try {
-      await page.goto(targetUrl, {
-        waitUntil: "domcontentloaded",
-        timeout: cfg.NAVIGATION_TIMEOUT_MS,
-      });
-    } catch (navErr: any) {
-      throw new Error(`Failed to load page: ${navErr.message || navErr}`);
-    }
+    await page.goto(targetUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: cfg.NAVIGATION_TIMEOUT_MS,
+    });
 
     notify("Waiting for initial network activity to settle...");
     await page.waitForLoadState("networkidle", {
       timeout: cfg.NETWORK_IDLE_TIMEOUT_MS,
-    }).catch(() => {
-      // Common on sites with persistent websockets/telemetry
-    });
+    }).catch(() => {});
 
     pageTitle = (await page.title()) || targetUrl;
 
-    notify("Checking for cookie/consent banners to dismiss...");
+    notify("Checking for cookie/consent banners...");
     await dismissCookieBanner(page).catch(() => {});
 
-    // Measure initial document metrics
-    const initialMetrics = await page.evaluate(() => ({
-      scrollHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
-      clientHeight: window.innerHeight,
-    }));
-    totalHeight = initialMetrics.scrollHeight;
-
-    notify(`Page loaded: "${pageTitle}" (initial measured height: ${totalHeight}px)`);
-
-    // Ensure page begins at absolute top
+    // Ensure page starts at top
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await page.waitForTimeout(300);
 
-    // Position mouse cursor in center of viewport so mouse.wheel targets scrollable area
+    // Position mouse cursor in center of viewport so mouse.wheel works
     await page.mouse.move(cfg.VIEWPORT.width / 2, cfg.VIEWPORT.height / 2);
 
-    let stepIndex = 1;
     let reachedBottom = false;
 
-    notify("Running step-scroll to trigger lazy content and scroll effects...");
-
     while (!reachedBottom) {
-      // CRITICAL: Read scrollY after pause so smooth-scroll libraries (Lenis, GSAP, etc.) have caught up with the wheel
+      totalStepsTaken++;
+
+      // Check safety limits
+      if (totalStepsTaken > cfg.SAFETY_LIMITS.MAX_TOTAL_STEPS) {
+        stopReason = "safety_steps_limit";
+        notify(`Safety limit reached (${cfg.SAFETY_LIMITS.MAX_TOTAL_STEPS} steps max).`);
+        break;
+      }
+
+      if (Date.now() - startTime > cfg.SAFETY_LIMITS.MAX_CAPTURE_TIME_MS) {
+        stopReason = "safety_time_limit";
+        notify(`Safety time limit reached (${cfg.SAFETY_LIMITS.MAX_CAPTURE_TIME_MS / 1000}s max).`);
+        break;
+      }
+
+      // Wait for viewport images and scroll settle
+      await waitForViewportImages(page, cfg.IMAGE_DECODE_MAX_WAIT_MS);
+      await waitForScrollSettle(page, cfg.SETTLE_MAX_WAIT_MS);
+
       const currentScrollY = await page.evaluate(
         () => window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0
       );
 
-      if (currentScrollY > maxScrollY) {
-        maxScrollY = currentScrollY;
+      // Take raw viewport screenshot
+      const currentPngBuffer = await page.screenshot({ fullPage: false });
+
+      // Frame deduplication check
+      let isDistinct = true;
+      if (previousKeptPngBuffer !== null) {
+        const diff = await computeMaxBlockDifference(
+          currentPngBuffer,
+          previousKeptPngBuffer,
+          cfg.DEDUPLICATION.THUMB_WIDTH,
+          cfg.DEDUPLICATION.THUMB_HEIGHT,
+          cfg.DEDUPLICATION.BLOCK_SIZE_X,
+          cfg.DEDUPLICATION.BLOCK_SIZE_Y
+        );
+
+        if (diff < cfg.DEDUPLICATION.DIFF_THRESHOLD) {
+          isDistinct = false;
+        }
       }
 
-      // Capture viewport frame into buffer
-      const frameBuffer = await page.screenshot({ fullPage: false });
-      stepFrames.push({
-        index: stepIndex,
-        scrollY: currentScrollY,
-        buffer: frameBuffer,
-      });
+      if (isDistinct) {
+        consecutiveIdenticalCount = 0;
+        previousKeptPngBuffer = currentPngBuffer;
 
-      notify(`Captured step ${stepIndex} at scrollY: ${Math.round(currentScrollY)}px`);
+        // Convert to WebP for compact storage
+        const webpBuffer = await sharp(currentPngBuffer)
+          .webp({ quality: cfg.IMAGE_FORMAT.QUALITY, effort: cfg.IMAGE_FORMAT.EFFORT })
+          .toBuffer();
 
-      // If document is scrolling (maxScrollY > 50px), hide fixed & sticky elements after frame 1 so headers don't repeat
-      if (maxScrollY > cfg.NATIVE_TRUST.SCROLL_DETECT_THRESHOLD_PX && stepIndex === 1) {
-        await page.evaluate(() => {
-          document.querySelectorAll("*").forEach((el) => {
-            const pos = window.getComputedStyle(el).position;
-            if (pos === "fixed" || pos === "sticky") {
-              el.setAttribute("data-capture-hidden", "true");
-              (el as HTMLElement).style.setProperty("visibility", "hidden", "important");
-            }
-          });
+        const sectionIndex = sections.length + 1;
+        sections.push({
+          index: sectionIndex,
+          buffer: webpBuffer,
+          width: cfg.VIEWPORT.width,
+          height: cfg.VIEWPORT.height,
+          scrollY: Math.round(currentScrollY),
         });
+
+        notify(`Captured section ${sectionIndex} at scrollY ${Math.round(currentScrollY)}px`);
+      } else {
+        droppedCount++;
+        consecutiveIdenticalCount++;
+        notify(
+          `Skipped identical frame (identical streak: ${consecutiveIdenticalCount}/${cfg.CONSECUTIVE_IDENTICAL_LIMIT})`
+        );
+
+        if (consecutiveIdenticalCount >= cfg.CONSECUTIVE_IDENTICAL_LIMIT) {
+          stopReason = "consecutive_identical";
+          notify(`Stopped after ${cfg.CONSECUTIVE_IDENTICAL_LIMIT} consecutive identical frames.`);
+          break;
+        }
       }
 
-      // Check height limit against stitched cap
-      if (currentScrollY + cfg.VIEWPORT.height >= cfg.MAX_STITCHED_PAGE_HEIGHT_PX) {
-        isCapped = true;
-        console.log(`Stepping reached maximum stitched page height limit (${cfg.MAX_STITCHED_PAGE_HEIGHT_PX}px).`);
-        notify(`Page height cap reached (${cfg.MAX_STITCHED_PAGE_HEIGHT_PX}px limit).`);
-        break;
-      }
-
+      // Check if page end is reached
       const metrics = await page.evaluate(() => ({
         scrollY: window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0,
         scrollHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
         clientHeight: window.innerHeight,
       }));
-      totalHeight = metrics.scrollHeight;
 
       if (metrics.scrollY + metrics.clientHeight >= metrics.scrollHeight - 5) {
         reachedBottom = true;
+        stopReason = "page_end";
         break;
       }
 
-      // Scroll down by one step with real mouse wheel
+      // Scroll down by one viewport step using mouse wheel
       await page.mouse.wheel(0, cfg.SCROLL_STEP_PX);
-      // Wait for animations and smooth-scroll to settle
       await page.waitForTimeout(cfg.PAUSE_PER_STEP_MS);
 
       const afterScrollY = await page.evaluate(
         () => window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0
       );
 
-      // Fallback scroll if wheel did not move document scrollY
+      // Fallback scroll if mouse wheel didn't scroll document (e.g. non-focusable container)
       if (Math.abs(afterScrollY - currentScrollY) < 2) {
         await page.evaluate((stepPx) => window.scrollBy(0, stepPx), cfg.SCROLL_STEP_PX);
         await page.waitForTimeout(cfg.PAUSE_PER_STEP_MS);
       }
+    }
 
+    // Bottom frame logic:
+    // "Take an extra bottom frame only if lastScrollY + viewportHeight < documentScrollHeight - 150. Otherwise skip it."
+    if (stopReason === "page_end") {
       const finalMetrics = await page.evaluate(() => ({
         scrollY: window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0,
         scrollHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
@@ -324,263 +359,63 @@ export async function captureUrl(
       }));
 
       if (
-        Math.abs(finalMetrics.scrollY - currentScrollY) < 2 ||
-        finalMetrics.scrollY + finalMetrics.clientHeight >= finalMetrics.scrollHeight - 5
+        finalMetrics.scrollY + finalMetrics.clientHeight <
+        finalMetrics.scrollHeight - cfg.BOTTOM_FRAME_THRESHOLD_PX
       ) {
-        reachedBottom = true;
-      }
+        notify("Taking final bottom frame to include footer...");
+        await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" }));
+        await page.waitForTimeout(cfg.PAUSE_PER_STEP_MS);
+        await waitForViewportImages(page, cfg.IMAGE_DECODE_MAX_WAIT_MS);
 
-      totalHeight = finalMetrics.scrollHeight;
-      stepIndex++;
-
-      const maxSteps = Math.ceil(cfg.MAX_STITCHED_PAGE_HEIGHT_PX / cfg.SCROLL_STEP_PX) + 2;
-      if (stepIndex > maxSteps) {
-        isCapped = true;
-        console.log(`Stepping guardrail reached (${maxSteps} steps limit).`);
-        break;
-      }
-    }
-
-    notify(`Completed step sequence (${stepFrames.length} steps taken). Restoring page state...`);
-
-    // Restore any hidden fixed/sticky elements
-    await page.evaluate(() => {
-      document.querySelectorAll('[data-capture-hidden="true"]').forEach((el) => {
-        el.removeAttribute("data-capture-hidden");
-        (el as HTMLElement).style.removeProperty("visibility");
-      });
-      window.scrollTo({ top: 0, behavior: "instant" });
-    });
-    await page.mouse.wheel(0, -999999);
-    await page.waitForTimeout(cfg.SETTLE_DELAY_MS);
-
-    // Measure final document scrollHeight
-    const finalMetrics = await page.evaluate(() => ({
-      scrollHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
-    }));
-    totalHeight = finalMetrics.scrollHeight;
-
-    notify(`Attempting native full-page screenshot (measured document height: ${totalHeight}px)...`);
-
-    let nativeBuffer: Buffer;
-    if (totalHeight > cfg.MAX_PAGE_HEIGHT_PX) {
-      isCapped = true;
-      notify(`Clamping native capture to Chromium limit (${cfg.MAX_PAGE_HEIGHT_PX}px).`);
-      nativeBuffer = await page.screenshot({
-        clip: {
-          x: 0,
-          y: 0,
-          width: cfg.VIEWPORT.width,
-          height: cfg.MAX_PAGE_HEIGHT_PX,
-        },
-      });
-    } else {
-      nativeBuffer = await page.screenshot({ fullPage: true });
-    }
-
-    const nativeMeta = await sharp(nativeBuffer).metadata();
-    const nativeWidth = nativeMeta.width || cfg.VIEWPORT.width;
-    const nativeHeight = nativeMeta.height || cfg.VIEWPORT.height;
-
-    notify(`Native screenshot taken: ${nativeWidth}x${nativeHeight}px`);
-
-    // -------------------------------------------------------------
-    // DECISION: Is the native full-page capture trustworthy?
-    // -------------------------------------------------------------
-    const documentActuallyScrolls = maxScrollY > cfg.NATIVE_TRUST.SCROLL_DETECT_THRESHOLD_PX;
-    const isSingleViewport = stepFrames.length <= 1;
-
-    // (a) Document actually scrolls or page is a single viewport
-    const passesScrollCheck = documentActuallyScrolls || isSingleViewport;
-
-    // (b) Native height is at least MIN_DOC_HEIGHT_RATIO of measured document height
-    const heightRatio = nativeHeight / Math.max(1, totalHeight);
-    const passesHeightCheck = heightRatio >= cfg.NATIVE_TRUST.MIN_DOC_HEIGHT_RATIO;
-
-    // (c) Coarse content check: compare step frames with corresponding regions in native image
-    let mismatchedRegions = 0;
-    const testedRegions = stepFrames.length;
-
-    for (const step of stepFrames) {
-      const diff = await compareRegionDifference(
-        step.buffer,
-        nativeBuffer,
-        step.scrollY,
-        cfg.VIEWPORT.width,
-        cfg.VIEWPORT.height,
-        nativeHeight,
-        cfg.STITCHING.FRAME_THUMBNAIL_WIDTH,
-        cfg.STITCHING.FRAME_THUMBNAIL_HEIGHT
-      );
-
-      if (diff > cfg.NATIVE_TRUST.STEP_REGION_MAX_DIFF) {
-        mismatchedRegions++;
-      }
-    }
-
-    const mismatchRatio = testedRegions > 0 ? mismatchedRegions / testedRegions : 0;
-    const passesContentCheck = mismatchRatio <= cfg.NATIVE_TRUST.MAX_MISMATCHED_REGIONS_RATIO;
-
-    const contentCheckSummary = {
-      testedRegions,
-      mismatchedRegions,
-      passed: passesContentCheck,
-    };
-
-    notify(
-      `Trust evaluation: scrolls=${passesScrollCheck} (maxScrollY: ${Math.round(maxScrollY)}px), ` +
-      `heightRatio=${heightRatio.toFixed(2)} (passes: ${passesHeightCheck}), ` +
-      `contentCheck=${passesContentCheck} (${mismatchedRegions}/${testedRegions} mismatched)`
-    );
-
-    let capturePathUsed: "native" | "stitched";
-    let finalFullPageBuffer: Buffer;
-    let framesKeptCount: number | undefined;
-    let framesDroppedCount: number | undefined;
-
-    if (passesScrollCheck && passesHeightCheck && passesContentCheck) {
-      capturePathUsed = "native";
-      finalFullPageBuffer = nativeBuffer;
-      notify(`Native full-page capture verified and selected (${nativeHeight}px).`);
-    } else {
-      capturePathUsed = "stitched";
-      notify(`Native capture untrusted. Routing to Sharp stitching engine...`);
-
-      if (documentActuallyScrolls) {
-        // Mode A: Document actually scrolled - composite at recorded scroll offsets
-        notify("Stitching scrolling document based on recorded scroll offsets...");
-        const canvasHeight = Math.min(
-          Math.max(Math.round(maxScrollY + cfg.VIEWPORT.height), nativeHeight),
-          cfg.MAX_STITCHED_PAGE_HEIGHT_PX
-        );
-
-        if (canvasHeight >= cfg.MAX_STITCHED_PAGE_HEIGHT_PX) {
-          isCapped = true;
-          console.log(`Page height cap applied: ${cfg.MAX_STITCHED_PAGE_HEIGHT_PX}px limit.`);
-          notify(`Page height cap applied: ${cfg.MAX_STITCHED_PAGE_HEIGHT_PX}px limit.`);
-        }
-
-        const compositeInputs = stepFrames.map((frame) => ({
-          input: frame.buffer,
-          top: Math.min(Math.round(frame.scrollY), canvasHeight - cfg.VIEWPORT.height),
-          left: 0,
-        }));
-
-        finalFullPageBuffer = await sharp({
-          create: {
-            width: cfg.VIEWPORT.width,
-            height: canvasHeight,
-            channels: 4,
-            background: { r: 255, g: 255, b: 255, alpha: 1 },
-          },
-        })
-          .composite(compositeInputs)
-          .png()
-          .toBuffer();
-
-        totalHeight = canvasHeight;
-        framesKeptCount = stepFrames.length;
-        framesDroppedCount = 0;
-      } else {
-        // Mode B: Scroll-locked / Virtual scroll site (maxScrollY <= 10px) - stack frames vertically
-        notify("Stitching scroll-locked site: evaluating frame differences with block comparison...");
-        const uniqueFrames: StepFrame[] = [];
-        let droppedCount = 0;
-
-        for (let i = 0; i < stepFrames.length; i++) {
-          const current = stepFrames[i];
-          if (uniqueFrames.length === 0) {
-            uniqueFrames.push(current);
-            continue;
-          }
-
-          const previous = uniqueFrames[uniqueFrames.length - 1];
-          const maxBlockDiff = await computeMaxBlockDifference(
-            current.buffer,
-            previous.buffer,
-            cfg.STITCHING.FRAME_THUMBNAIL_WIDTH,
-            cfg.STITCHING.FRAME_THUMBNAIL_HEIGHT,
-            cfg.STITCHING.BLOCK_SIZE_X,
-            cfg.STITCHING.BLOCK_SIZE_Y
+        const bottomPngBuffer = await page.screenshot({ fullPage: false });
+        let isBottomDistinct = true;
+        if (previousKeptPngBuffer !== null) {
+          const diff = await computeMaxBlockDifference(
+            bottomPngBuffer,
+            previousKeptPngBuffer,
+            cfg.DEDUPLICATION.THUMB_WIDTH,
+            cfg.DEDUPLICATION.THUMB_HEIGHT,
+            cfg.DEDUPLICATION.BLOCK_SIZE_X,
+            cfg.DEDUPLICATION.BLOCK_SIZE_Y
           );
-
-          if (maxBlockDiff >= cfg.STITCHING.MAX_BLOCK_DIFF_THRESHOLD) {
-            uniqueFrames.push(current);
-          } else {
-            droppedCount++;
+          if (diff < cfg.DEDUPLICATION.DIFF_THRESHOLD) {
+            isBottomDistinct = false;
           }
         }
 
-        framesKeptCount = uniqueFrames.length;
-        framesDroppedCount = droppedCount;
-        notify(
-          `Duplicate frame filter: ${framesKeptCount} distinct states kept, ${framesDroppedCount} static frames dropped.`
-        );
+        if (isBottomDistinct) {
+          const webpBuffer = await sharp(bottomPngBuffer)
+            .webp({ quality: cfg.IMAGE_FORMAT.QUALITY, effort: cfg.IMAGE_FORMAT.EFFORT })
+            .toBuffer();
 
-        let canvasHeight = uniqueFrames.length * cfg.VIEWPORT.height;
-        if (canvasHeight > cfg.MAX_STITCHED_PAGE_HEIGHT_PX) {
-          isCapped = true;
-          console.log(`Page height cap applied: ${cfg.MAX_STITCHED_PAGE_HEIGHT_PX}px limit.`);
-          notify(`Page height cap applied: ${cfg.MAX_STITCHED_PAGE_HEIGHT_PX}px limit.`);
-          canvasHeight = cfg.MAX_STITCHED_PAGE_HEIGHT_PX;
-        }
-
-        const compositeInputs = uniqueFrames
-          .map((frame, idx) => ({
-            input: frame.buffer,
-            top: idx * cfg.VIEWPORT.height,
-            left: 0,
-          }))
-          .filter((item) => item.top < canvasHeight);
-
-        finalFullPageBuffer = await sharp({
-          create: {
+          const sectionIndex = sections.length + 1;
+          sections.push({
+            index: sectionIndex,
+            buffer: webpBuffer,
             width: cfg.VIEWPORT.width,
-            height: canvasHeight,
-            channels: 4,
-            background: { r: 255, g: 255, b: 255, alpha: 1 },
-          },
-        })
-          .composite(compositeInputs)
-          .png()
-          .toBuffer();
-
-        totalHeight = canvasHeight;
+            height: cfg.VIEWPORT.height,
+            scrollY: Math.round(finalMetrics.scrollHeight - finalMetrics.clientHeight),
+          });
+          notify(`Captured final bottom section ${sectionIndex}`);
+        } else {
+          droppedCount++;
+        }
       }
     }
 
-    // Write final full-page image
-    fs.writeFileSync(fullPagePath, finalFullPageBuffer);
-    notify(`Saved final full-page image: ${fullPagePath} (${totalHeight}px)`);
-
-    // Generate small card thumbnail (top crop)
-    const finalMeta = await sharp(finalFullPageBuffer).metadata();
-    const finalWidth = finalMeta.width || cfg.VIEWPORT.width;
-    const finalHeight = finalMeta.height || totalHeight;
-
-    const cropHeight = Math.min(finalHeight, Math.round((finalWidth * cfg.STITCHING.THUMBNAIL_HEIGHT) / cfg.STITCHING.THUMBNAIL_WIDTH));
-
-    await sharp(finalFullPageBuffer)
-      .extract({ left: 0, top: 0, width: finalWidth, height: cropHeight })
-      .resize(cfg.STITCHING.THUMBNAIL_WIDTH, cfg.STITCHING.THUMBNAIL_HEIGHT, { fit: "cover", position: "top" })
-      .jpeg({ quality: 85 })
-      .toFile(thumbnailPath);
-
-    notify(`Saved card thumbnail: ${thumbnailPath}`);
+    notify(`Auto-capture complete: ${sections.length} kept, ${droppedCount} dropped. Reason: ${stopReason}`);
 
     return {
       captureId,
       url: targetUrl,
       title: pageTitle,
-      fullPagePath,
-      thumbnailPath,
-      capturePathUsed,
-      contentCheck: contentCheckSummary,
-      framesKept: framesKeptCount,
-      framesDropped: framesDroppedCount,
-      totalHeight,
-      isCapped,
-      capturedAt: new Date().toISOString(),
+      sections,
+      totalStepsTaken,
+      keptCount: sections.length,
+      droppedCount,
+      stopReason,
+      hitSafetyLimit: stopReason === "safety_steps_limit" || stopReason === "safety_time_limit",
+      durationMs: Date.now() - startTime,
     };
   } finally {
     if (browser) {

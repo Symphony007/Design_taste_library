@@ -12,40 +12,40 @@ if (!fs.existsSync(DATA_DIR)) {
 
 export const db = new Database(DB_PATH);
 
-// Enable WAL mode for high concurrency and performance
+// Enable WAL mode and cascade foreign keys
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
 /**
- * Initializes the database schema.
+ * Initializes the clean schema.
  */
 export function initDb(): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS entries (
       id TEXT PRIMARY KEY,
-      url TEXT NOT NULL UNIQUE,
       title TEXT NOT NULL,
-      category TEXT,
-      tags TEXT NOT NULL DEFAULT '[]',
+      source_url TEXT UNIQUE,
       notes TEXT,
-      full_page_path TEXT NOT NULL,
-      steps_dir TEXT NOT NULL,
-      captured_at TEXT NOT NULL DEFAULT (datetime('now')),
-      full_page_unreliable INTEGER NOT NULL DEFAULT 0
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      stop_reason TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS images (
+      id TEXT PRIMARY KEY,
+      entry_id TEXT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL,
+      file_path TEXT NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_images_entry_position ON images (entry_id, position);
 
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
   `);
-
-  // Safe migration: check if full_page_unreliable column exists
-  const tableInfo = db.pragma("table_info(entries)") as { name: string }[];
-  const hasColumn = tableInfo.some((col) => col.name === "full_page_unreliable");
-  if (!hasColumn) {
-    db.exec(`ALTER TABLE entries ADD COLUMN full_page_unreliable INTEGER NOT NULL DEFAULT 0;`);
-  }
 }
 
 // Auto-run schema initialization

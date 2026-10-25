@@ -1,5 +1,5 @@
 /**
- * Tunable constants for web capture and image stitching.
+ * Tunable constants for section-by-section auto-capture.
  */
 
 export const CAPTURE_CONFIG = {
@@ -15,49 +15,44 @@ export const CAPTURE_CONFIG = {
   // Maximum time (ms) to wait for network to idle after domcontentloaded
   NETWORK_IDLE_TIMEOUT_MS: 5000,
 
-  // Distance in pixels to scroll per step (matches viewport height for clean tiling)
+  // Distance in pixels to scroll per step (matches viewport height for clean section tiling)
   SCROLL_STEP_PX: 900,
 
-  // Pause duration (ms) at each step to allow lazy assets and scroll-reveals to execute
+  // Pause duration (ms) at each step to allow scroll effects to trigger
   PAUSE_PER_STEP_MS: 600,
 
-  // Pause duration (ms) after scrolling back to top before taking full-page screenshot
-  SETTLE_DELAY_MS: 1200,
+  // Maximum time to wait for viewport images to complete loading and decoding
+  IMAGE_DECODE_MAX_WAIT_MS: 800,
 
-  // Maximum height cap for Chromium native full-page screenshots (in pixels)
-  MAX_PAGE_HEIGHT_PX: 16200,
+  // Maximum time to wait for scroll and document height to become stationary
+  SETTLE_MAX_WAIT_MS: 1000,
 
-  // Higher height cap for stitched screenshots (~35 full screens at 900px)
-  MAX_STITCHED_PAGE_HEIGHT_PX: 32000,
+  // Consecutive identical frames limit before stopping (handles scroll-locked / virtual-scroll pages)
+  CONSECUTIVE_IDENTICAL_LIMIT: 4,
 
-  // Relative path where screenshots are stored
-  OUTPUT_DIR: "data/screenshots",
-
-  // Criteria for validating whether Chromium's native full-page capture is trustworthy
-  NATIVE_TRUST: {
-    // Scroll distance (px) above which the document is confirmed to genuinely scroll
-    SCROLL_DETECT_THRESHOLD_PX: 50,
-    // Minimum ratio of native screenshot height to measured document scrollHeight
-    MIN_DOC_HEIGHT_RATIO: 0.85,
-    // Maximum allowable mean grayscale pixel difference between a step region and the native capture
-    STEP_REGION_MAX_DIFF: 0.25,
-    // Maximum ratio of mismatched step regions before the native capture is declared untrusted
-    MAX_MISMATCHED_REGIONS_RATIO: 0.20,
+  // Moderate safety limits to prevent runaway capture on infinite-scroll pages
+  SAFETY_LIMITS: {
+    MAX_TOTAL_STEPS: 60,
+    MAX_CAPTURE_TIME_MS: 75000, // 75 seconds
   },
 
-  // Parameters for Sharp-based step frame stitching and duplicate detection
-  STITCHING: {
-    // Dimensions used for downscaled frame similarity checks
-    FRAME_THUMBNAIL_WIDTH: 160,
-    FRAME_THUMBNAIL_HEIGHT: 100,
-    // Grid block size for max block difference calculation
+  // Extra bottom frame is captured only if lastScrollY + viewportHeight < documentScrollHeight - 150
+  BOTTOM_FRAME_THRESHOLD_PX: 150,
+
+  // Parameters for downscaled grayscale block difference comparison
+  DEDUPLICATION: {
+    THUMB_WIDTH: 160,
+    THUMB_HEIGHT: 100,
     BLOCK_SIZE_X: 16,
     BLOCK_SIZE_Y: 10,
-    // Maximum block difference threshold to classify a frame as distinct (vs. duplicate)
-    MAX_BLOCK_DIFF_THRESHOLD: 0.08,
-    // Output dimensions for card thumbnails
-    THUMBNAIL_WIDTH: 720,
-    THUMBNAIL_HEIGHT: 450,
+    // Strict threshold: changes in small text or UI badges register as distinct (> 0.05)
+    DIFF_THRESHOLD: 0.05,
+  },
+
+  // Compression format for stored sections
+  IMAGE_FORMAT: {
+    QUALITY: 82,
+    EFFORT: 4,
   },
 } as const;
 

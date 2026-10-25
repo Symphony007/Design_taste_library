@@ -14,13 +14,15 @@ export default function EntryCard({
   onToggleSelect,
 }: EntryCardProps) {
   let hostname = "";
-  try {
-    hostname = new URL(entry.url).hostname.replace(/^www\./, "");
-  } catch {
-    hostname = entry.url;
+  if (entry.source_url) {
+    try {
+      hostname = new URL(entry.source_url).hostname.replace(/^www\./, "");
+    } catch {
+      hostname = entry.source_url;
+    }
   }
 
-  const thumbnailSrc = entry.thumbnail_url || entry.full_page_url;
+  const thumbnailSrc = entry.thumbnail_url || (entry.images && entry.images[0]?.url) || "";
 
   return (
     <div

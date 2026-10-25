@@ -1,5 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { fetchEntry, updateEntry as updateEntryApi, deleteEntry as deleteEntryApi } from "../api/client";
+import {
+  fetchEntry,
+  updateEntry as updateEntryApi,
+  deleteEntry as deleteEntryApi,
+  deleteImage as deleteImageApi,
+} from "../api/client";
 import type { Entry, UpdateEntryInput } from "../types/entry";
 
 export function useEntry(id: string | undefined) {
@@ -36,6 +41,17 @@ export function useEntry(id: string | undefined) {
     },
   });
 
+  const deleteImageMutation = useMutation({
+    mutationFn: (imageId: string) => {
+      if (!id) throw new Error("Entry ID is required");
+      return deleteImageApi(id, imageId);
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["entry", id], updated);
+      queryClient.invalidateQueries({ queryKey: ["entries"] });
+    },
+  });
+
   return {
     entry: query.data,
     isLoading: query.isLoading,
@@ -48,5 +64,7 @@ export function useEntry(id: string | undefined) {
     isUpdateSuccess: updateMutation.isSuccess,
     deleteEntry: deleteMutation.mutateAsync,
     isDeleting: deleteMutation.isPending,
+    deleteImage: deleteImageMutation.mutateAsync,
+    isDeletingImage: deleteImageMutation.isPending,
   };
 }

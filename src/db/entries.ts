@@ -1,202 +1,334 @@
+import fs from "node:fs";
+import path from "node:path";
 import { db } from "./index.js";
+
+export interface EntryImage {
+  id: string;
+  entry_id: string;
+  position: number;
+  file_path: string;
+  width: number;
+  height: number;
+}
 
 export interface Entry {
   id: string;
-  url: string;
   title: string;
-  category: string | null;
-  tags: string[];
+  source_url: string | null;
   notes: string | null;
-  full_page_path: string;
-  steps_dir: string;
-  captured_at: string;
-  full_page_unreliable: boolean;
-}
-
-interface RawDbEntry {
-  id: string;
-  url: string;
-  title: string;
-  category: string | null;
-  tags: string; // JSON string
-  notes: string | null;
-  full_page_path: string;
-  steps_dir: string;
-  captured_at: string;
-  full_page_unreliable: number;
+  created_at: string;
+  stop_reason: string | null;
+  images: EntryImage[];
 }
 
 export interface CreateEntryInput {
   id: string;
-  url: string;
   title: string;
-  category?: string | null;
-  tags?: string[];
+  source_url?: string | null;
   notes?: string | null;
-  full_page_path: string;
-  steps_dir: string;
-  captured_at?: string;
-  full_page_unreliable?: boolean;
+  created_at?: string;
+  stop_reason?: string | null;
+  images?: Array<{
+    id: string;
+    position: number;
+    file_path: string;
+    width: number;
+    height: number;
+  }>;
 }
 
 export interface UpdateEntryInput {
-  category?: string | null;
-  tags?: string[];
+  title?: string;
   notes?: string | null;
 }
 
-export interface EntryFilter {
-  category?: string;
-  tag?: string;
-}
-
 /**
- * Maps raw database row with JSON tags string to typed Entry with real array.
- */
-function toEntry(row: RawDbEntry): Entry {
-  let parsedTags: string[] = [];
-  try {
-    parsedTags = JSON.parse(row.tags || "[]");
-    if (!Array.isArray(parsedTags)) {
-      parsedTags = [];
-    }
-  } catch {
-    parsedTags = [];
-  }
-
-  return {
-    id: row.id,
-    url: row.url,
-    title: row.title,
-    category: row.category ?? null,
-    tags: parsedTags,
-    notes: row.notes ?? null,
-    full_page_path: row.full_page_path,
-    steps_dir: row.steps_dir,
-    captured_at: row.captured_at,
-    full_page_unreliable: Boolean(row.full_page_unreliable),
-  };
-}
-
-/**
- * Creates a new entry record in SQLite.
+ * Creates an entry with optional initial images in a single transaction.
  */
 export function createEntry(input: CreateEntryInput): Entry {
-  const tagsJson = JSON.stringify(input.tags || []);
-  const capturedAt = input.captured_at || new Date().toISOString();
-  const fullPageUnreliable = input.full_page_unreliable ? 1 : 0;
-
-  const stmt = db.prepare(`
-    INSERT INTO entries (id, url, title, category, tags, notes, full_page_path, steps_dir, captured_at, full_page_unreliable)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  const insertEntry = db.prepare(`
+    INSERT INTO entries (id, title, source_url, notes, created_at, stop_reason)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
 
-  stmt.run(
-    input.id,
-    input.url,
-    input.title,
-    input.category ?? null,
-    tagsJson,
-    input.notes ?? null,
-    input.full_page_path,
-    input.steps_dir,
-    capturedAt,
-    fullPageUnreliable
-  );
+  const insertImage = db.prepare(`
+    INSERT INTO images (id, entry_id, position, file_path, width, height)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+  const createdAt = input.created_at || new Date().toISOString();
+
+  const transaction = db.transaction(() => {
+    insertEntry.run(
+      input.id,
+      input.title,
+      input.source_url ?? null,
+      input.notes ?? null,
+      createdAt,
+      input.stop_reason ?? null
+    );
+
+    if (input.images && input.images.length > 0) {
+      for (const img of input.images) {
+        insertImage.run(
+          img.id,
+          input.id,
+          img.position,
+          img.file_path,
+          img.width,
+          img.height
+        );
+      }
+    }
+  });
+
+  transaction();
+
+  return getEntryById(input.id)!;
+}
+
+/**
+ * Lists all entries, sorted newest first, with their ordered images.
+ */
+export function listEntries(): Entry[] {
+  const entries = db.prepare(`
+    SELECT id, title, source_url, notes, created_at, stop_reason
+    FROM entries
+    ORDER BY created_at DESC
+  `).all() as Omit<Entry, "images">[];
+
+  if (entries.length === 0) return [];
+
+  const images = db.prepare(`
+    SELECT id, entry_id, position, file_path, width, height
+    FROM images
+    ORDER BY position ASC
+  `).all() as EntryImage[];
+
+  const imagesByEntry = new Map<string, EntryImage[]>();
+  for (const img of images) {
+    if (!imagesByEntry.has(img.entry_id)) {
+      imagesByEntry.set(img.entry_id, []);
+    }
+    imagesByEntry.get(img.entry_id)!.push(img);
+  }
+
+  return entries.map((entry) => ({
+    ...entry,
+    images: imagesByEntry.get(entry.id) || [],
+  }));
+}
+
+/**
+ * Fetches a single entry by ID, with all images ordered by position.
+ */
+export function getEntryById(id: string): Entry | null {
+  const entry = db.prepare(`
+    SELECT id, title, source_url, notes, created_at, stop_reason
+    FROM entries
+    WHERE id = ?
+  `).get(id) as Omit<Entry, "images"> | undefined;
+
+  if (!entry) return null;
+
+  const images = db.prepare(`
+    SELECT id, entry_id, position, file_path, width, height
+    FROM images
+    WHERE entry_id = ?
+    ORDER BY position ASC
+  `).all(id) as EntryImage[];
 
   return {
-    id: input.id,
-    url: input.url,
-    title: input.title,
-    category: input.category ?? null,
-    tags: input.tags || [],
-    notes: input.notes ?? null,
-    full_page_path: input.full_page_path,
-    steps_dir: input.steps_dir,
-    captured_at: capturedAt,
-    full_page_unreliable: Boolean(input.full_page_unreliable),
+    ...entry,
+    images,
   };
 }
 
 /**
- * Fetches an entry by its ID.
- */
-export function getEntryById(id: string): Entry | null {
-  const stmt = db.prepare<[string], RawDbEntry>(`SELECT * FROM entries WHERE id = ?`);
-  const row = stmt.get(id);
-  return row ? toEntry(row) : null;
-}
-
-/**
- * Fetches an entry by its normalized URL.
+ * Fetches an entry by its source URL.
  */
 export function getEntryByUrl(url: string): Entry | null {
-  const stmt = db.prepare<[string], RawDbEntry>(`SELECT * FROM entries WHERE url = ?`);
-  const row = stmt.get(url);
-  return row ? toEntry(row) : null;
+  const entry = db.prepare(`
+    SELECT id, title, source_url, notes, created_at, stop_reason
+    FROM entries
+    WHERE source_url = ?
+  `).get(url) as Omit<Entry, "images"> | undefined;
+
+  if (!entry) return null;
+
+  return getEntryById(entry.id);
 }
 
 /**
- * Lists entries, sorted newest first, with optional category and tag filters.
- */
-export function listEntries(filter?: EntryFilter): Entry[] {
-  let query = `SELECT * FROM entries WHERE 1=1`;
-  const params: any[] = [];
-
-  if (filter?.category) {
-    query += ` AND category = ?`;
-    params.push(filter.category);
-  }
-
-  if (filter?.tag) {
-    // Filter by tag inside the JSON array using SQLite's json_each
-    query += ` AND EXISTS (SELECT 1 FROM json_each(entries.tags) WHERE value = ?)`;
-    params.push(filter.tag);
-  }
-
-  query += ` ORDER BY captured_at DESC`;
-
-  const stmt = db.prepare<any[], RawDbEntry>(query);
-  const rows = stmt.all(...params);
-  return rows.map(toEntry);
-}
-
-/**
- * Updates an entry's category, tags, and notes only.
- * Returns the updated Entry, or null if the entry does not exist.
+ * Updates an entry's title and/or notes.
  */
 export function updateEntry(id: string, updates: UpdateEntryInput): Entry | null {
   const existing = getEntryById(id);
-  if (!existing) {
-    return null;
+  if (!existing) return null;
+
+  const newTitle = updates.title !== undefined ? updates.title : existing.title;
+  const newNotes = updates.notes !== undefined ? updates.notes : existing.notes;
+
+  db.prepare(`
+    UPDATE entries
+    SET title = ?, notes = ?
+    WHERE id = ?
+  `).run(newTitle, newNotes, id);
+
+  return getEntryById(id);
+}
+
+/**
+ * Deletes an entry and removes its image files and folder from disk.
+ */
+export function deleteEntry(id: string): boolean {
+  const entry = getEntryById(id);
+  if (!entry) return false;
+
+  // Delete all image files from disk
+  for (const img of entry.images) {
+    const fullPath = path.resolve(process.cwd(), "data", img.file_path);
+    try {
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
+    } catch (err) {
+      console.error(`Failed to delete image file ${fullPath}:`, err);
+    }
   }
 
-  const newCategory = updates.category !== undefined ? updates.category : existing.category;
-  const newNotes = updates.notes !== undefined ? updates.notes : existing.notes;
-  const newTags = updates.tags !== undefined ? updates.tags : existing.tags;
-  const tagsJson = JSON.stringify(newTags);
+  // Remove entry folder if empty or exists
+  const entryDir = path.resolve(process.cwd(), "data", "images", id);
+  try {
+    if (fs.existsSync(entryDir)) {
+      fs.rmSync(entryDir, { recursive: true, force: true });
+    }
+  } catch (err) {
+    console.error(`Failed to delete entry directory ${entryDir}:`, err);
+  }
 
-  const stmt = db.prepare(`
-    UPDATE entries
-    SET category = ?, tags = ?, notes = ?
-    WHERE id = ?
-  `);
+  const result = db.prepare(`DELETE FROM entries WHERE id = ?`).run(id);
+  return result.changes > 0;
+}
 
-  stmt.run(newCategory, tagsJson, newNotes, id);
+/**
+ * Appends a new image to an entry at position max+1.
+ */
+export function addImageToEntry(
+  entryId: string,
+  image: { id: string; file_path: string; width: number; height: number; position?: number }
+): EntryImage {
+  const maxPosRow = db.prepare(`
+    SELECT COALESCE(MAX(position), 0) as max_pos
+    FROM images
+    WHERE entry_id = ?
+  `).get(entryId) as { max_pos: number };
+
+  const nextPos = image.position !== undefined ? image.position : maxPosRow.max_pos + 1;
+
+  db.prepare(`
+    INSERT INTO images (id, entry_id, position, file_path, width, height)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(image.id, entryId, nextPos, image.file_path, image.width, image.height);
 
   return {
-    ...existing,
-    category: newCategory,
-    tags: newTags,
-    notes: newNotes,
+    id: image.id,
+    entry_id: entryId,
+    position: nextPos,
+    file_path: image.file_path,
+    width: image.width,
+    height: image.height,
   };
 }
 
 /**
- * Deletes an entry from SQLite by ID. Returns true if a row was deleted.
+ * Deletes a single image, deletes the file from disk, and compacts remaining positions 1..N.
  */
-export function deleteEntry(id: string): boolean {
-  const stmt = db.prepare(`DELETE FROM entries WHERE id = ?`);
-  const result = stmt.run(id);
-  return result.changes > 0;
+export function deleteImage(entryId: string, imageId: string): boolean {
+  const img = db.prepare(`
+    SELECT id, entry_id, file_path
+    FROM images
+    WHERE id = ? AND entry_id = ?
+  `).get(imageId, entryId) as EntryImage | undefined;
+
+  if (!img) return false;
+
+  // Delete file from disk
+  const fullPath = path.resolve(process.cwd(), "data", img.file_path);
+  try {
+    if (fs.existsSync(fullPath)) {
+      fs.unlinkSync(fullPath);
+    }
+  } catch (err) {
+    console.error(`Failed to delete image file ${fullPath}:`, err);
+  }
+
+  const transaction = db.transaction(() => {
+    // Delete image record
+    db.prepare(`DELETE FROM images WHERE id = ?`).run(imageId);
+
+    // Compact remaining positions 1..N
+    const remaining = db.prepare(`
+      SELECT id
+      FROM images
+      WHERE entry_id = ?
+      ORDER BY position ASC
+    `).all(entryId) as { id: string }[];
+
+    const updatePos = db.prepare(`
+      UPDATE images
+      SET position = ?
+      WHERE id = ?
+    `);
+
+    for (let i = 0; i < remaining.length; i++) {
+      updatePos.run(i + 1, remaining[i].id);
+    }
+  });
+
+  transaction();
+  return true;
+}
+
+/**
+ * Replaces all images for an entry (used when recapturing with force: true).
+ * Deletes old files from disk, inserts new images, updates stop_reason.
+ */
+export function replaceEntryImages(
+  entryId: string,
+  newImages: Array<{ id: string; position: number; file_path: string; width: number; height: number }>,
+  stopReason?: string | null
+): void {
+  const oldImages = db.prepare(`
+    SELECT file_path FROM images WHERE entry_id = ?
+  `).all(entryId) as { file_path: string }[];
+
+  const transaction = db.transaction(() => {
+    db.prepare(`DELETE FROM images WHERE entry_id = ?`).run(entryId);
+
+    const insertImage = db.prepare(`
+      INSERT INTO images (id, entry_id, position, file_path, width, height)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const img of newImages) {
+      insertImage.run(img.id, entryId, img.position, img.file_path, img.width, img.height);
+    }
+
+    if (stopReason !== undefined) {
+      db.prepare(`UPDATE entries SET stop_reason = ? WHERE id = ?`).run(stopReason, entryId);
+    }
+  });
+
+  transaction();
+
+  // Delete old files from disk after transaction succeeds
+  for (const old of oldImages) {
+    const fullPath = path.resolve(process.cwd(), "data", old.file_path);
+    try {
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
+    } catch {}
+  }
 }

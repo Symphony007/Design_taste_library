@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, ExternalLink, Trash2, Loader2, Calendar } from "lucide-react";
+import { ArrowLeft, ExternalLink, Trash2, Loader2, Calendar, AlertCircle } from "lucide-react";
 import Header from "../components/common/Header";
 import Modal from "../components/common/Modal";
-import ScreenshotViewer from "../components/entry-detail/ScreenshotViewer";
+import SectionList from "../components/entry-detail/ScreenshotViewer";
 import NotesEditor from "../components/entry-detail/NotesEditor";
 import { useEntry } from "../hooks/useEntry";
 
@@ -11,6 +11,9 @@ export default function EntryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleValue, setTitleValue] = useState("");
+  const [deletingImageId, setDeletingImageId] = useState<string | null>(null);
 
   const {
     entry,
@@ -21,6 +24,7 @@ export default function EntryDetailPage() {
     isUpdating,
     deleteEntry,
     isDeleting,
+    deleteImage,
   } = useEntry(id);
 
   async function handleDeleteConfirm() {
@@ -33,8 +37,34 @@ export default function EntryDetailPage() {
     }
   }
 
-  const capturedDate = entry?.captured_at
-    ? new Date(entry.captured_at).toLocaleDateString(undefined, {
+  async function handleDeleteImage(imageId: string) {
+    if (!window.confirm("Are you sure you want to delete this section screenshot?")) {
+      return;
+    }
+    setDeletingImageId(imageId);
+    try {
+      await deleteImage(imageId);
+    } catch (err: unknown) {
+      alert(`Failed to delete image: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setDeletingImageId(null);
+    }
+  }
+
+  async function handleTitleSave() {
+    if (!titleValue.trim() || titleValue.trim() === entry?.title) {
+      setIsEditingTitle(false);
+      return;
+    }
+    try {
+      await updateEntryAsync({ title: titleValue.trim() });
+    } finally {
+      setIsEditingTitle(false);
+    }
+  }
+
+  const createdDate = entry?.created_at
+    ? new Date(entry.created_at).toLocaleDateString(undefined, {
         year: "numeric",
         month: "short",
         day: "numeric",
@@ -64,7 +94,7 @@ export default function EntryDetailPage() {
               title="Delete entry"
             >
               <Trash2 size={13} />
-              <span>Delete</span>
+              <span>Delete entry</span>
             </button>
           )}
         </div>
@@ -92,35 +122,78 @@ export default function EntryDetailPage() {
           <div className="space-y-6">
             {/* Header info */}
             <div className="space-y-2">
-              <h1 className="text-2xl font-semibold tracking-tight text-ink">
-                {entry.title}
-              </h1>
-              <div className="flex flex-wrap items-center gap-4 text-xs text-ink-tertiary">
-                <a
-                  href={entry.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-ink-secondary hover:text-accent font-mono truncate max-w-lg no-underline"
+              {isEditingTitle ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={titleValue}
+                    onChange={(e) => setTitleValue(e.target.value)}
+                    onBlur={handleTitleSave}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleTitleSave();
+                      if (e.key === "Escape") setIsEditingTitle(false);
+                    }}
+                    autoFocus
+                    className="text-2xl font-semibold tracking-tight text-ink bg-surface-elevated border border-accent rounded px-2 py-0.5 outline-none w-full max-w-xl"
+                  />
+                </div>
+              ) : (
+                <h1
+                  onClick={() => {
+                    setTitleValue(entry.title);
+                    setIsEditingTitle(true);
+                  }}
+                  title="Click to edit title"
+                  className="text-2xl font-semibold tracking-tight text-ink hover:text-accent cursor-pointer transition-colors"
                 >
-                  <span>{entry.url}</span>
-                  <ExternalLink size={12} className="shrink-0" />
-                </a>
-                {capturedDate && (
+                  {entry.title}
+                </h1>
+              )}
+
+              <div className="flex flex-wrap items-center gap-4 text-xs text-ink-tertiary">
+                {entry.source_url && (
+                  <a
+                    href={entry.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-ink-secondary hover:text-accent font-mono truncate max-w-lg no-underline"
+                  >
+                    <span>{entry.source_url}</span>
+                    <ExternalLink size={12} className="shrink-0" />
+                  </a>
+                )}
+                {createdDate && (
                   <span className="inline-flex items-center gap-1 font-mono">
                     <Calendar size={12} />
-                    <span>Captured on {capturedDate}</span>
+                    <span>Captured on {createdDate}</span>
                   </span>
                 )}
               </div>
+
+              {/* Advisory Lines */}
+              {entry.stop_reason && (
+                <div className="text-xs text-amber-500 font-mono flex items-center gap-1.5 pt-1">
+                  <AlertCircle size={13} />
+                  <span>{entry.stop_reason}</span>
+                </div>
+              )}
+
+              {entry.images && entry.images.length === 1 && (
+                <div className="text-xs text-ink-tertiary font-mono pt-1">
+                  This page may not have captured fully. If it has an intro screen, take your own screenshots and add them here.
+                </div>
+              )}
             </div>
 
-            {/* Layout: Full page screenshot on left, Notes editor on right */}
+            {/* Layout: Section images on left, Notes editor on right */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              {/* Full page image */}
+              {/* Vertical section screenshots */}
               <div className="lg:col-span-8 order-2 lg:order-1">
-                <ScreenshotViewer
-                  fullPageUrl={entry.full_page_url}
+                <SectionList
+                  images={entry.images || []}
                   title={entry.title}
+                  onDeleteImage={handleDeleteImage}
+                  isDeletingImageId={deletingImageId}
                 />
               </div>
 
@@ -146,7 +219,7 @@ export default function EntryDetailPage() {
             Delete this entry?
           </h3>
           <p className="text-xs text-ink-secondary leading-relaxed">
-            This will permanently remove <span className="font-medium text-ink font-mono">{entry?.title}</span> along with its full-page screenshot. This action cannot be undone.
+            This will permanently remove <span className="font-medium text-ink font-mono">{entry?.title}</span> along with all its section screenshots. This action cannot be undone.
           </p>
           <div className="flex justify-end gap-3 pt-3 border-t border-border">
             <button
