@@ -41,20 +41,20 @@ export default function NotesEditor({
   }
 
   return (
-    <div className="border border-border rounded-sm bg-surface-elevated p-4 space-y-3">
+    <div className="border border-border/80 rounded-2xl bg-surface-elevated p-4 space-y-3 shadow-sm hover:border-border-strong transition-all">
       <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-secondary">
-          Notes
+        <h2 className="text-[11px] font-semibold uppercase tracking-widest text-ink-secondary flex items-center gap-1.5">
+          <span>Notes & Critique</span>
         </h2>
         <div className="text-[11px] font-mono h-4 flex items-center">
           {isSaving || saveStatus === "saving" ? (
             <span className="flex items-center gap-1 text-ink-tertiary">
-              <Loader2 size={11} className="animate-spin text-accent" />
+              <Loader2 size={11} className="animate-spin text-ink" />
               <span>Saving...</span>
             </span>
           ) : saveStatus === "saved" ? (
-            <span className="flex items-center gap-1 text-accent font-medium">
-              <Check size={12} />
+            <span className="flex items-center gap-1 text-emerald-600 font-medium">
+              <Check size={12} strokeWidth={2.5} />
               <span>Saved</span>
             </span>
           ) : null}
@@ -65,10 +65,10 @@ export default function NotesEditor({
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         onBlur={handleBlur}
-        rows={8}
-        placeholder="Add notes, observations, or thoughts on this design..."
-        className="w-full px-3 py-2.5 text-xs text-ink bg-surface border border-border rounded-sm
-          placeholder:text-ink-tertiary focus:outline-none focus:border-border-strong resize-y font-sans leading-relaxed"
+        rows={10}
+        placeholder="Record design observations, typography choices, visual interactions, or palette notes..."
+        className="w-full px-3.5 py-3 text-xs text-ink bg-surface-sunken/40 border border-border/70 rounded-xl
+          placeholder:text-ink-tertiary focus:outline-none focus:border-ink/30 focus:bg-surface-elevated focus:ring-2 focus:ring-ink/5 resize-y font-sans leading-relaxed transition-all"
       />
     </div>
   );

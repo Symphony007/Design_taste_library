@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Header from "../components/common/Header";
 import AddEntryBar from "../components/add-entry/AddEntryBar";
 import EntryGrid from "../components/library/EntryGrid";
@@ -7,10 +7,11 @@ import ExportModal from "../components/common/ExportModal";
 import Modal from "../components/common/Modal";
 import { useEntries } from "../hooks/useEntries";
 import { deleteEntry } from "../api/client";
-import { Loader2, Download, X, CheckSquare, Trash2 } from "lucide-react";
+import { Loader2, Download, X, CheckSquare, Trash2, Search } from "lucide-react";
 
 export default function LibraryPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportInitialScope, setExportInitialScope] = useState<"all" | "selected">("all");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -18,6 +19,18 @@ export default function LibraryPage() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const { entries, isLoading, isError, error, refetch } = useEntries();
+
+  // Filter entries in real-time
+  const filteredEntries = useMemo(() => {
+    if (!searchQuery.trim()) return entries;
+    const q = searchQuery.toLowerCase().trim();
+    return entries.filter(
+      (e) =>
+        e.title.toLowerCase().includes(q) ||
+        (e.source_url && e.source_url.toLowerCase().includes(q)) ||
+        (e.notes && e.notes.toLowerCase().includes(q))
+    );
+  }, [entries, searchQuery]);
 
   function handleToggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -64,7 +77,7 @@ export default function LibraryPage() {
   }
 
   function handleSelectAll() {
-    setSelectedIds(new Set(entries.map((e) => e.id)));
+    setSelectedIds(new Set(filteredEntries.map((e) => e.id)));
   }
 
   function handleClearSelection() {
@@ -77,42 +90,88 @@ export default function LibraryPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-surface text-ink relative pb-20">
+    <div className="min-h-screen flex flex-col bg-surface text-ink relative pb-28">
       <Header
         entryCount={entries.length}
         onExportClick={() => handleOpenExport(selectedIds.size > 0 ? "selected" : "all")}
       />
 
-      <main className="flex-1 mx-auto max-w-7xl w-full px-6 py-8 space-y-8">
-        {/* Add Entry Section */}
-        <section className="max-w-2xl mx-auto">
+      <main className="flex-1 mx-auto max-w-7xl w-full px-6 py-8 space-y-10">
+        {/* Add Entry Command Section */}
+        <section className="max-w-2xl mx-auto pt-2">
           <AddEntryBar />
         </section>
 
-        {/* Content Section */}
-        <section className="pt-2">
+        {/* Library Content Section */}
+        <section className="space-y-6">
+          {/* Subheader / Search & Controls */}
+          {entries.length > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/60">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-semibold uppercase tracking-wider text-ink-secondary">
+                  Collection
+                </span>
+                <span className="text-xs font-mono text-ink-tertiary">
+                  ({filteredEntries.length} {filteredEntries.length === entries.length ? "items" : `of ${entries.length}`})
+                </span>
+              </div>
+
+              {/* Real-time search box */}
+              <div className="relative w-full sm:w-72">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-tertiary pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Filter references..."
+                  className="w-full pl-8 pr-7 py-1.5 bg-surface-elevated border border-border/80 focus:border-ink/30 rounded-lg text-xs text-ink placeholder:text-ink-tertiary outline-none shadow-2xs transition-all"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-tertiary hover:text-ink"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {isLoading ? (
-            <div className="py-24 flex flex-col items-center justify-center gap-3 text-ink-tertiary">
-              <Loader2 size={24} className="animate-spin text-accent" />
+            <div className="py-28 flex flex-col items-center justify-center gap-3 text-ink-tertiary">
+              <Loader2 size={24} className="animate-spin text-ink" />
               <p className="text-xs font-mono">Loading library...</p>
             </div>
           ) : isError ? (
             <div className="py-24 text-center space-y-3">
-              <p className="text-sm text-danger">
+              <p className="text-sm text-danger font-medium">
                 Failed to load library: {error?.message || "Unknown error"}
               </p>
               <button
                 onClick={() => refetch()}
-                className="px-3 py-1.5 border border-border rounded-sm text-xs text-ink hover:border-border-strong"
+                className="px-3 py-1.5 border border-border rounded-lg text-xs text-ink hover:border-border-strong bg-surface-elevated shadow-xs"
               >
                 Retry
               </button>
             </div>
-          ) : entries.length === 0 ? (
-            <EmptyState />
+          ) : filteredEntries.length === 0 ? (
+            searchQuery ? (
+              <div className="py-20 text-center space-y-2">
+                <p className="text-sm font-medium text-ink">No references match "{searchQuery}"</p>
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="text-xs text-accent-blue hover:underline font-medium"
+                >
+                  Clear filter
+                </button>
+              </div>
+            ) : (
+              <EmptyState />
+            )
           ) : (
             <EntryGrid
-              entries={entries}
+              entries={filteredEntries}
               selectedIds={selectedIds}
               onToggleSelect={handleToggleSelect}
               onDeleteEntry={handleRequestDeleteSingle}
@@ -125,13 +184,13 @@ export default function LibraryPage() {
       {selectedIds.size > 0 && (
         <aside
           aria-label="Selection toolbar"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-ink text-surface px-5 py-3 rounded-full shadow-lg flex items-center gap-4 text-xs font-medium"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-ink/95 backdrop-blur-xl border border-white/10 text-surface px-5 py-2.5 rounded-2xl shadow-2xl flex items-center gap-4 text-xs font-medium animate-fade-in"
         >
-          <span className="font-mono text-accent-light">
+          <span className="font-mono text-accent-light font-semibold">
             {selectedIds.size} selected
           </span>
 
-          <div className="h-4 w-px bg-surface/20" />
+          <div className="h-4 w-px bg-white/20" />
 
           <button
             type="button"
@@ -139,7 +198,7 @@ export default function LibraryPage() {
             className="text-surface/80 hover:text-surface transition-colors flex items-center gap-1.5"
           >
             <CheckSquare size={13} />
-            <span>Select all ({entries.length})</span>
+            <span>Select all</span>
           </button>
 
           <button
@@ -151,7 +210,7 @@ export default function LibraryPage() {
             <span>Clear</span>
           </button>
 
-          <div className="h-4 w-px bg-surface/20" />
+          <div className="h-4 w-px bg-white/20" />
 
           <button
             type="button"

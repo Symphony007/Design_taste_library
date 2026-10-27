@@ -15,6 +15,12 @@ export const CAPTURE_CONFIG = {
   // Maximum time (ms) to wait for network to idle after domcontentloaded
   NETWORK_IDLE_TIMEOUT_MS: 5000,
 
+  // Maximum time (ms) to wait for splash screens / preloaders to dismiss (e.g. WebGL/3D showcases)
+  PRELOADER_MAX_WAIT_MS: 30000,
+
+  // Settle time (ms) after preloader dismisses before starting capture (lets WebGL shaders / canvas / animations settle)
+  PRELOADER_SETTLE_MS: 3500,
+
   // Distance in pixels to scroll per step (matches viewport height for clean section tiling)
   SCROLL_STEP_PX: 900,
 
@@ -51,6 +57,16 @@ export const CAPTURE_CONFIG = {
     // Strict threshold: changes in small text or UI badges register as distinct (> 0.05)
     DIFF_THRESHOLD: 0.05,
   },
+
+  // Virtual-scroll / WebGL presentation settings (when scrollHeight <= innerHeight)
+  VIRTUAL_SCROLL: {
+    MAX_SCENES: 10,
+    WHEEL_STEP_PX: 1500,
+    TRANSITION_WAIT_MS: 1200,
+  },
+
+  // Maximum height (px) for a single image before splitting (safe buffer below WebP's 16,383px limit)
+  MAX_SINGLE_IMAGE_HEIGHT: 15000,
 
   // Compression format for stored sections
   IMAGE_FORMAT: {

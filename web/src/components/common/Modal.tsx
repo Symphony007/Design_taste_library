@@ -24,16 +24,16 @@ export default function Modal({ open, onClose, children }: ModalProps) {
   return (
     <div
       ref={backdropRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 backdrop-blur-sm animate-fade-in"
       onClick={(e) => {
         if (e.target === backdropRef.current) onClose();
       }}
     >
-      <div className="bg-surface-elevated border border-border w-full max-w-md mx-4 p-6 rounded-sm shadow-sm">
+      <div className="bg-surface-elevated border border-border/80 w-full max-w-md mx-4 p-6 rounded-2xl shadow-2xl">
         <div className="flex justify-end mb-2">
           <button
             onClick={onClose}
-            className="text-ink-tertiary hover:text-ink p-1"
+            className="text-ink-tertiary hover:text-ink p-1.5 rounded-lg hover:bg-surface-sunken transition-colors"
             aria-label="Close"
           >
             <X size={16} />

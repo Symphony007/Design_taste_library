@@ -148,6 +148,173 @@ async function waitForViewportImages(page: Page, maxWaitMs: number): Promise<voi
 }
 
 /**
+ * Detects if a full-screen preloader/splash screen is active (common on WebGL, 3D, and Awwwards sites).
+ * Waits adaptively for it to complete/dismiss, handles interactive "Enter" buttons, and allows
+ * canvas/entrance animations to settle.
+ */
+async function waitForPreloaderDismissal(
+  page: Page,
+  notify: (msg: string) => void,
+  maxWaitMs: number,
+  settleMs: number
+): Promise<void> {
+  // Give scripts a brief moment (~800ms) to attach any preloader to the DOM if not already present
+  await page.waitForTimeout(800).catch(() => {});
+
+  const detection = await page
+    .evaluate(() => {
+      const loaderSelectors = [
+        ".preloader",
+        ".js-preloader",
+        "#preloader",
+        "#loader",
+        ".loader",
+        "[class*='preloader']",
+        "[id*='preloader']",
+        "[class*='loading-screen']",
+        "[class*='loading-overlay']",
+        "[class*='splash-screen']",
+        "[class*='splash']",
+        "[data-loading]",
+        "[aria-label*='loading' i]",
+      ];
+
+      for (const sel of loaderSelectors) {
+        const el = document.querySelector(sel);
+        if (el) {
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          const isBig =
+            rect.width >= window.innerWidth * 0.4 && rect.height >= window.innerHeight * 0.4;
+          const isVisible =
+            style.display !== "none" && style.opacity !== "0" && style.visibility !== "hidden";
+          if (isBig && isVisible) {
+            const rawText = (el.textContent || "").slice(0, 80).replace(/\s+/g, " ").trim();
+            return { found: true, selector: sel, text: rawText };
+          }
+        }
+      }
+
+      // Check for large elements containing percentage/loading text
+      const allDivs = Array.from(document.querySelectorAll("div, section, main"));
+      for (const el of allDivs) {
+        const style = window.getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        const isFullScreen =
+          rect.width >= window.innerWidth * 0.8 && rect.height >= window.innerHeight * 0.8;
+        const isVisible =
+          style.display !== "none" && style.opacity !== "0" && style.visibility !== "hidden";
+        if (
+          isFullScreen &&
+          isVisible &&
+          (style.position === "fixed" || style.position === "absolute")
+        ) {
+          const txt = (el.textContent || "").trim();
+          if (/\b\d{1,3}%\b/i.test(txt) && /load|experience|please wait|preparing/i.test(txt)) {
+            return { found: true, selector: null, text: txt.slice(0, 60) };
+          }
+        }
+      }
+
+      return { found: false, selector: null, text: "" };
+    })
+    .catch(() => ({ found: false, selector: null, text: "" }));
+
+  if (!detection.found) {
+    return;
+  }
+
+  notify(
+    `Detected preloader/splash screen${detection.text ? ` ("${detection.text}")` : ""}. Waiting for experience to load...`
+  );
+
+  const startTime = Date.now();
+  let lastProgressReport = startTime;
+
+  while (Date.now() - startTime < maxWaitMs) {
+    await page.waitForTimeout(600).catch(() => {});
+
+    const status = await page
+      .evaluate((targetSelector) => {
+        if (targetSelector) {
+          const el = document.querySelector(targetSelector);
+          if (!el) return { isGone: true, progressText: "" };
+          const style = window.getComputedStyle(el);
+          if (
+            style.display === "none" ||
+            style.opacity === "0" ||
+            style.visibility === "hidden"
+          ) {
+            return { isGone: true, progressText: "" };
+          }
+          return {
+            isGone: false,
+            progressText: (el.textContent || "").slice(0, 60).replace(/\s+/g, " ").trim(),
+          };
+        }
+
+        const fullOverlays = Array.from(document.querySelectorAll("div, section")).filter((el) => {
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          const isBig =
+            rect.width >= window.innerWidth * 0.8 && rect.height >= window.innerHeight * 0.8;
+          const isVisible =
+            style.display !== "none" && style.opacity !== "0" && style.visibility !== "hidden";
+          if (isBig && isVisible && (style.position === "fixed" || style.position === "absolute")) {
+            const txt = (el.textContent || "").trim();
+            return /\b\d{1,3}%\b/i.test(txt) || /loading your experience|please wait/i.test(txt);
+          }
+          return false;
+        });
+
+        return {
+          isGone: fullOverlays.length === 0,
+          progressText: fullOverlays[0]
+            ? (fullOverlays[0].textContent || "").slice(0, 60).replace(/\s+/g, " ").trim()
+            : "",
+        };
+      }, detection.selector)
+      .catch(() => ({ isGone: true, progressText: "" }));
+
+    if (status.isGone) {
+      const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
+      notify(`Preloader dismissed after ${durationSec}s.`);
+      break;
+    }
+
+    if (Date.now() - lastProgressReport > 3000) {
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+      notify(
+        `Still loading (${elapsed}s elapsed)${status.progressText ? `: ${status.progressText}` : "..."}`
+      );
+      lastProgressReport = Date.now();
+    }
+  }
+
+  // Check for interactive "Enter" / "Start" buttons (common in WebGL/audio experiences)
+  await page
+    .evaluate(() => {
+      const enterButtons = Array.from(document.querySelectorAll("button, a, [role='button']"));
+      const enterTarget = enterButtons.find((b) => {
+        const text = (b.textContent || "").trim().toLowerCase();
+        const isVisible =
+          window.getComputedStyle(b).display !== "none" &&
+          window.getComputedStyle(b).visibility !== "hidden";
+        return isVisible && /^(enter|click to enter|start|explore|begin|experience|enter site)$/i.test(text);
+      });
+      if (enterTarget) {
+        (enterTarget as HTMLElement).click();
+      }
+    })
+    .catch(() => {});
+
+  if (settleMs > 0) {
+    notify(`Waiting ${Math.round(settleMs / 1000)}s for canvas and entrance animations to render...`);
+    await page.waitForTimeout(settleMs).catch(() => {});
+  }
+}
+
+/**
  * Fast settle check: waits for document scroll position to become stationary.
  */
 async function waitForScrollSettle(page: Page, maxWaitMs: number): Promise<void> {
@@ -190,10 +357,8 @@ export async function captureSections(
 
   let browser: Browser | null = null;
   const sections: CapturedSection[] = [];
-  let previousKeptPngBuffer: Buffer | null = null;
   let droppedCount = 0;
   let totalStepsTaken = 0;
-  let consecutiveIdenticalCount = 0;
   let stopReason: StopReason = "page_end";
   let pageTitle = "";
   let documentHeightAtStart = 0;
@@ -202,10 +367,21 @@ export async function captureSections(
   let maxScrollY = 0;
 
   try {
-    notify(`Launching headless Chromium (${cfg.VIEWPORT.width}x${cfg.VIEWPORT.height})...`);
+    const launchArgs = [
+      "--disable-dev-shm-usage",
+      "--no-sandbox",
+      "--enable-webgl",
+      "--ignore-gpu-blocklist",
+      "--enable-gpu-rasterization",
+    ];
+
+    if (process.platform === "win32") {
+      launchArgs.push("--use-gl=angle", "--use-angle=d3d11");
+    }
+
     browser = await chromium.launch({
       headless: true,
-      args: ["--disable-dev-shm-usage", "--no-sandbox"],
+      args: launchArgs,
     });
 
     const context = await browser.newContext({
@@ -233,6 +409,13 @@ export async function captureSections(
     notify("Checking for cookie/consent banners...");
     await dismissCookieBanner(page).catch(() => {});
 
+    // Intelligent check for preloaders / splash screens (WebGL, 3D, immersive sites)
+    notify("Checking for preloader / splash screens...");
+    await waitForPreloaderDismissal(page, notify, cfg.PRELOADER_MAX_WAIT_MS, cfg.PRELOADER_SETTLE_MS);
+
+    // Re-check cookie banners in case one appeared after the splash screen cleared
+    await dismissCookieBanner(page).catch(() => {});
+
     // Ensure page starts at top
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await page.waitForTimeout(200);
@@ -247,168 +430,247 @@ export async function captureSections(
     // Center mouse cursor for wheel events
     await page.mouse.move(cfg.VIEWPORT.width / 2, cfg.VIEWPORT.height / 2);
 
-    let currentScrollY = 0;
+    let fullPngBuffer: Buffer;
+    const isDocScrollable = initialMetrics.scrollHeight > initialMetrics.clientHeight + 150;
 
-    while (true) {
-      totalStepsTaken++;
+    if (isDocScrollable) {
+      // Branch A: Standard scrollable HTML document
+      let currentScrollY = 0;
+      let consecutiveUnchangedCount = 0;
 
-      // 1. Safety limit checks
-      if (totalStepsTaken > cfg.SAFETY_LIMITS.MAX_TOTAL_STEPS) {
-        stopReason = "safety_steps_limit";
-        notify(`Safety step limit reached (${cfg.SAFETY_LIMITS.MAX_TOTAL_STEPS} steps).`);
-        break;
+      notify("Performing rolling scroll pass to trigger lazy-loaded media and animations...");
+
+      while (true) {
+        totalStepsTaken++;
+
+        // 1. Safety limit checks
+        if (totalStepsTaken > cfg.SAFETY_LIMITS.MAX_TOTAL_STEPS) {
+          stopReason = "safety_steps_limit";
+          notify(`Safety step limit reached (${cfg.SAFETY_LIMITS.MAX_TOTAL_STEPS} steps).`);
+          break;
+        }
+
+        if (Date.now() - startTime > cfg.SAFETY_LIMITS.MAX_CAPTURE_TIME_MS) {
+          stopReason = "safety_time_limit";
+          notify(`Safety time limit reached (${cfg.SAFETY_LIMITS.MAX_CAPTURE_TIME_MS / 1000}s).`);
+          break;
+        }
+
+        // 2. Fast settle checks
+        await waitForViewportImages(page, cfg.IMAGE_DECODE_MAX_WAIT_MS);
+        await waitForScrollSettle(page, cfg.SETTLE_MAX_WAIT_MS);
+
+        const docMetrics = await page.evaluate(() => ({
+          scrollHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
+          clientHeight: window.innerHeight,
+          scrollY: window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0,
+        }));
+
+        const newScrollY = Math.round(docMetrics.scrollY);
+        if (newScrollY > maxScrollY) {
+          maxScrollY = newScrollY;
+        }
+
+        if (docMetrics.scrollHeight > documentHeightAtStart + 1500) {
+          documentHeightGrew = true;
+        }
+
+        // Check if page reached bottom
+        const remainingDistance = docMetrics.scrollHeight - (newScrollY + docMetrics.clientHeight);
+        if (remainingDistance <= 15) {
+          notify(`Reached page bottom (${newScrollY}px scrolled).`);
+          break;
+        }
+
+        // Check if scroll position is not progressing (locked/sticky footer/end)
+        if (Math.abs(newScrollY - currentScrollY) < 5) {
+          consecutiveUnchangedCount++;
+          if (consecutiveUnchangedCount >= cfg.CONSECUTIVE_IDENTICAL_LIMIT) {
+            notify("Scroll position stationary; reached bottom or scroll lock.");
+            break;
+          }
+        } else {
+          consecutiveUnchangedCount = 0;
+        }
+
+        currentScrollY = newScrollY;
+
+        // Scroll down by step
+        await page.mouse.wheel(0, cfg.SCROLL_STEP_PX);
+        await page.waitForTimeout(cfg.PAUSE_PER_STEP_MS);
+
+        // Fallback scroll if mouse wheel didn't advance scrollY
+        const afterScrollY = await page.evaluate(
+          () => window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0
+        );
+        if (Math.abs(afterScrollY - currentScrollY) < 2) {
+          await page.evaluate((stepPx) => window.scrollBy(0, stepPx), cfg.SCROLL_STEP_PX);
+          await page.waitForTimeout(200);
+        }
       }
 
-      if (Date.now() - startTime > cfg.SAFETY_LIMITS.MAX_CAPTURE_TIME_MS) {
-        stopReason = "safety_time_limit";
-        notify(`Safety time limit reached (${cfg.SAFETY_LIMITS.MAX_CAPTURE_TIME_MS / 1000}s).`);
-        break;
-      }
+      // Scroll back to top so fixed/sticky elements anchor cleanly at y=0
+      notify("Rolling pass complete. Returning to top for clean full-page capture...");
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+      await page.waitForTimeout(400);
 
-      // 2. Fast settle checks (capped budget per step)
-      const stepWaitStart = Date.now();
-      await waitForViewportImages(page, cfg.IMAGE_DECODE_MAX_WAIT_MS);
-      await waitForScrollSettle(page, cfg.SETTLE_MAX_WAIT_MS);
-
-      currentScrollY = await page.evaluate(
-        () => window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0
+      // Take complete full-page screenshot
+      notify("Capturing full-page continuous screenshot...");
+      fullPngBuffer = await page.screenshot({ fullPage: true, type: "png" });
+    } else {
+      // Branch B: Virtual-scroll / WebGL presentation (fixed 100vh viewport)
+      notify(
+        `Virtual-scroll presentation detected (fixed viewport height ${initialMetrics.scrollHeight}px). Stepping through virtual scenes...`
       );
 
-      if (currentScrollY > maxScrollY) {
-        maxScrollY = currentScrollY;
-      }
+      const scenePngs: Buffer[] = [];
+      const initialPng = await page.screenshot({ fullPage: false, type: "png" });
+      scenePngs.push(initialPng);
 
-      const docMetrics = await page.evaluate(() => ({
-        scrollHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight),
-        clientHeight: window.innerHeight,
-      }));
+      let consecutiveIdentical = 0;
+      const maxScenes = cfg.VIRTUAL_SCROLL?.MAX_SCENES || 10;
+      const wheelStep = cfg.VIRTUAL_SCROLL?.WHEEL_STEP_PX || 1500;
+      const waitMs = cfg.VIRTUAL_SCROLL?.TRANSITION_WAIT_MS || 1200;
 
-      if (docMetrics.scrollHeight > documentHeightAtStart + 1500) {
-        documentHeightGrew = true;
-      }
+      for (let step = 1; step <= maxScenes; step++) {
+        totalStepsTaken++;
 
-      // 3. Take viewport screenshot
-      const currentPngBuffer = await page.screenshot({ fullPage: false });
+        await page.mouse.move(cfg.VIEWPORT.width / 2, cfg.VIEWPORT.height / 2);
+        await page.mouse.wheel(0, wheelStep);
+        await page.waitForTimeout(waitMs);
+        await waitForViewportImages(page, cfg.IMAGE_DECODE_MAX_WAIT_MS);
 
-      // 4. Distinct check
-      const documentActuallyScrolls = maxScrollY > 50;
-      let isDistinct = true;
+        const currentPng = await page.screenshot({ fullPage: false, type: "png" });
+        const lastScenePng = scenePngs[scenePngs.length - 1];
 
-      // On scroll-locked/virtual-scroll sites where scrollY stays 0, use pixel block diff
-      if (!documentActuallyScrolls && previousKeptPngBuffer !== null) {
-        const diff = await computeMaxBlockDifference(
-          currentPngBuffer,
-          previousKeptPngBuffer,
+        // Check difference from previous scene
+        const diffFromLast = await computeMaxBlockDifference(
+          lastScenePng,
+          currentPng,
           cfg.DEDUPLICATION.THUMB_WIDTH,
           cfg.DEDUPLICATION.THUMB_HEIGHT,
           cfg.DEDUPLICATION.BLOCK_SIZE_X,
           cfg.DEDUPLICATION.BLOCK_SIZE_Y
         );
 
-        if (diff < cfg.DEDUPLICATION.DIFF_THRESHOLD) {
-          isDistinct = false;
+        // Check if presentation has looped back to an earlier scene
+        let isLoop = false;
+        if (scenePngs.length >= 3) {
+          for (let sIdx = 0; sIdx < Math.min(3, scenePngs.length - 1); sIdx++) {
+            const loopDiff = await computeMaxBlockDifference(
+              scenePngs[sIdx],
+              currentPng,
+              cfg.DEDUPLICATION.THUMB_WIDTH,
+              cfg.DEDUPLICATION.THUMB_HEIGHT,
+              cfg.DEDUPLICATION.BLOCK_SIZE_X,
+              cfg.DEDUPLICATION.BLOCK_SIZE_Y
+            );
+            if (loopDiff < cfg.DEDUPLICATION.DIFF_THRESHOLD) {
+              isLoop = true;
+              break;
+            }
+          }
         }
-      }
 
-      if (isDistinct) {
-        consecutiveIdenticalCount = 0;
-        previousKeptPngBuffer = currentPngBuffer;
-
-        const webpBuffer = await sharp(currentPngBuffer)
-          .webp({ quality: cfg.IMAGE_FORMAT.QUALITY, effort: cfg.IMAGE_FORMAT.EFFORT })
-          .toBuffer();
-
-        const sectionIndex = sections.length + 1;
-        sections.push({
-          index: sectionIndex,
-          buffer: webpBuffer,
-          width: cfg.VIEWPORT.width,
-          height: cfg.VIEWPORT.height,
-          scrollY: Math.round(currentScrollY),
-          newContentHeight: cfg.VIEWPORT.height,
-        });
-
-        notify(`Captured section ${sectionIndex} (scrollY: ${Math.round(currentScrollY)}px, adds ${cfg.VIEWPORT.height}px)`);
-      } else {
-        droppedCount++;
-        consecutiveIdenticalCount++;
-        notify(
-          `Skipped identical frame (identical streak: ${consecutiveIdenticalCount}/${cfg.CONSECUTIVE_IDENTICAL_LIMIT})`
-        );
-
-        if (consecutiveIdenticalCount >= cfg.CONSECUTIVE_IDENTICAL_LIMIT) {
-          stopReason = "consecutive_identical";
-          notify(`Page stopped changing after ${cfg.CONSECUTIVE_IDENTICAL_LIMIT} identical steps.`);
+        if (isLoop) {
+          notify("Virtual presentation looped back to beginning. Completing scene capture.");
           break;
         }
+
+        if (diffFromLast >= cfg.DEDUPLICATION.DIFF_THRESHOLD) {
+          scenePngs.push(currentPng);
+          consecutiveIdentical = 0;
+          notify(`Captured distinct virtual scene ${scenePngs.length}...`);
+        } else {
+          consecutiveIdentical++;
+          if (consecutiveIdentical >= 2) {
+            notify("Virtual presentation reached end of scenes.");
+            break;
+          }
+        }
       }
 
-      // 5. Check end-of-page rule using scroll distance
-      const remainingDocContent = docMetrics.scrollHeight - (currentScrollY + cfg.VIEWPORT.height);
+      // Stitch distinct virtual scenes vertically into 1 continuous canvas
+      const totalHeight = scenePngs.length * cfg.VIEWPORT.height;
+      notify(
+        `Stitching ${scenePngs.length} virtual scenes into 1 continuous image (${cfg.VIEWPORT.width}x${totalHeight}px)...`
+      );
 
-      if (remainingDocContent < cfg.NEW_CONTENT_MIN_PX) {
-        // Less than 150px remaining: stop. Capture nothing more.
-        stopReason = "page_end";
-        notify(`Page end reached (only ${Math.round(remainingDocContent)}px remaining < ${cfg.NEW_CONTENT_MIN_PX}px threshold).`);
-        break;
-      }
+      const composites = scenePngs.map((buf, i) => ({
+        input: buf,
+        top: i * cfg.VIEWPORT.height,
+        left: 0,
+      }));
 
-      if (remainingDocContent < cfg.VIEWPORT.height) {
-        // Between 150px and 899px remaining: clamped final bottom scroll
-        const newContentHeight = Math.round(remainingDocContent);
-        notify(
-          `Final bottom scroll: ${newContentHeight}px new content remaining (>= ${cfg.NEW_CONTENT_MIN_PX}px). Capturing cropped bottom frame...`
-        );
+      fullPngBuffer = await sharp({
+        create: {
+          width: cfg.VIEWPORT.width,
+          height: totalHeight,
+          channels: 4,
+          background: { r: 0, g: 0, b: 0, alpha: 1 },
+        },
+      })
+        .composite(composites)
+        .png()
+        .toBuffer();
+    }
 
-        await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" }));
-        await page.waitForTimeout(cfg.PAUSE_PER_STEP_MS);
-        await waitForViewportImages(page, cfg.IMAGE_DECODE_MAX_WAIT_MS);
+    // Inspect image dimensions
+    const imageMeta = await sharp(fullPngBuffer).metadata();
+    const fullWidth = imageMeta.width || cfg.VIEWPORT.width;
+    const fullHeight = imageMeta.height || cfg.VIEWPORT.height;
+    const maxHeightLimit = cfg.MAX_SINGLE_IMAGE_HEIGHT || 15000;
 
-        const bottomPngBuffer = await page.screenshot({ fullPage: false });
+    if (fullHeight <= maxHeightLimit) {
+      // Keep as 1 continuous single image
+      notify(`Page fits in 1 continuous screenshot (${fullWidth}x${fullHeight}px). Converting to WebP...`);
+      const webpBuffer = await sharp(fullPngBuffer)
+        .webp({ quality: cfg.IMAGE_FORMAT.QUALITY, effort: cfg.IMAGE_FORMAT.EFFORT })
+        .toBuffer();
 
-        // Crop to only the new region (the bottom part of that screenshot)
-        const cropTop = cfg.VIEWPORT.height - newContentHeight;
-        const croppedWebpBuffer = await sharp(bottomPngBuffer)
+      sections.push({
+        index: 1,
+        buffer: webpBuffer,
+        width: fullWidth,
+        height: fullHeight,
+        scrollY: 0,
+        newContentHeight: fullHeight,
+      });
+    } else {
+      // Exceptionally long page: split into chunks when limit is hit
+      const totalChunks = Math.ceil(fullHeight / maxHeightLimit);
+      notify(
+        `Page height (${fullHeight}px) exceeds ${maxHeightLimit}px limit. Splitting into ${totalChunks} continuous chunks...`
+      );
+
+      let topOffset = 0;
+      let sectionIndex = 1;
+
+      while (topOffset < fullHeight) {
+        const chunkHeight = Math.min(maxHeightLimit, fullHeight - topOffset);
+        const chunkBuffer = await sharp(fullPngBuffer)
           .extract({
             left: 0,
-            top: cropTop,
-            width: cfg.VIEWPORT.width,
-            height: newContentHeight,
+            top: topOffset,
+            width: fullWidth,
+            height: chunkHeight,
           })
           .webp({ quality: cfg.IMAGE_FORMAT.QUALITY, effort: cfg.IMAGE_FORMAT.EFFORT })
           .toBuffer();
 
-        const sectionIndex = sections.length + 1;
         sections.push({
           index: sectionIndex,
-          buffer: croppedWebpBuffer,
-          width: cfg.VIEWPORT.width,
-          height: newContentHeight,
-          scrollY: Math.round(docMetrics.scrollHeight - newContentHeight),
-          newContentHeight: newContentHeight,
-          isCropped: true,
+          buffer: chunkBuffer,
+          width: fullWidth,
+          height: chunkHeight,
+          scrollY: topOffset,
+          newContentHeight: chunkHeight,
+          isCropped: topOffset > 0,
         });
 
-        notify(`Captured final bottom section ${sectionIndex} (cropped to ${newContentHeight}px, zero duplicate content).`);
-        stopReason = "page_end";
-        break;
-      }
-
-      // 6. Scroll down by one viewport step
-      const stepRemainingWait = Math.max(0, cfg.MAX_STEP_WAIT_MS - (Date.now() - stepWaitStart));
-      const pauseDuration = Math.min(cfg.PAUSE_PER_STEP_MS, stepRemainingWait);
-
-      await page.mouse.wheel(0, cfg.SCROLL_STEP_PX);
-      await page.waitForTimeout(pauseDuration);
-
-      const afterScrollY = await page.evaluate(
-        () => window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0
-      );
-
-      // Fallback scroll if mouse wheel did not scroll the window
-      if (Math.abs(afterScrollY - currentScrollY) < 2) {
-        await page.evaluate((stepPx) => window.scrollBy(0, stepPx), cfg.SCROLL_STEP_PX);
-        await page.waitForTimeout(200);
+        notify(`Processed chunk ${sectionIndex}/${totalChunks} (${fullWidth}x${chunkHeight}px)`);
+        topOffset += chunkHeight;
+        sectionIndex++;
       }
     }
 
@@ -422,13 +684,15 @@ export async function captureSections(
     let stopReasonText: string | null = null;
     if (stopReason === "safety_steps_limit" || stopReason === "safety_time_limit") {
       if (documentHeightGrew) {
-        stopReasonText = `Stopped early after ${sections.length} sections to avoid an endless page`;
+        stopReasonText = `Stopped early after ${totalStepsTaken} steps to avoid an endless page`;
       } else {
-        stopReasonText = `Stopped early after ${sections.length} sections; the page continued.`;
+        stopReasonText = `Stopped early after ${totalStepsTaken} steps; page continued`;
       }
     }
 
-    notify(`Auto-capture finished: ${sections.length} kept, ${droppedCount} dropped. Reason: ${stopReason}`);
+    notify(
+      `Capture complete: ${sections.length} image(s) produced (${fullWidth}x${fullHeight}px total).`
+    );
 
     return {
       captureId,

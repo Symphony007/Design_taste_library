@@ -91,57 +91,89 @@ export default function EntryDetailPage() {
       })
     : "";
 
+  const [showAddImages, setShowAddImages] = useState(false);
+
   return (
     <div className="min-h-screen flex flex-col bg-surface text-ink">
       <Header />
 
       <main className="flex-1 mx-auto max-w-7xl w-full px-6 py-6 space-y-6">
         {/* Navigation & Actions Top Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-border/60">
           <Link
             to="/"
-            className="inline-flex items-center gap-2 text-xs font-mono text-ink-secondary hover:text-ink transition-colors no-underline"
+            className="inline-flex items-center gap-2 text-xs font-medium text-ink-secondary hover:text-ink transition-colors no-underline px-2.5 py-1.5 rounded-lg hover:bg-surface-elevated"
           >
             <ArrowLeft size={14} />
-            <span>Back to library</span>
+            <span>Library</span>
+            <span className="text-ink-tertiary">/</span>
+            <span className="text-ink truncate max-w-[200px]">{entry?.title || "Reference"}</span>
           </Link>
 
           {entry && (
-            <button
-              type="button"
-              onClick={() => setDeleteModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-ink-secondary hover:text-danger hover:border-danger/30 border border-border rounded-sm transition-colors"
-              title="Delete entry"
-            >
-              <Trash2 size={13} />
-              <span>Delete entry</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {entry.source_url && (
+                <a
+                  href={entry.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border/80 rounded-lg bg-surface-elevated hover:bg-surface hover:border-border-strong text-ink shadow-2xs transition-all"
+                  title="Open live website in new tab"
+                >
+                  <ExternalLink size={12} className="text-ink-tertiary" />
+                  <span>Open live site</span>
+                </a>
+              )}
+
+              {entry.images && entry.images.length > 0 && (
+                <a
+                  href={entry.images[0].url}
+                  download
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border/80 rounded-lg bg-surface-elevated hover:bg-surface hover:border-border-strong text-ink shadow-2xs transition-all"
+                  title="Open full resolution roll"
+                >
+                  <span>Full image</span>
+                </a>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setDeleteModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-ink-tertiary hover:text-danger hover:border-danger/30 hover:bg-danger-light/50 border border-border/80 rounded-lg bg-surface-elevated shadow-2xs transition-all"
+                title="Delete entry"
+              >
+                <Trash2 size={13} />
+                <span>Delete</span>
+              </button>
+            </div>
           )}
         </div>
 
         {/* Content Body */}
         {isLoading ? (
           <div className="py-32 flex flex-col items-center justify-center gap-3 text-ink-tertiary">
-            <Loader2 size={24} className="animate-spin text-accent" />
-            <p className="text-xs font-mono">Loading capture details...</p>
+            <Loader2 size={24} className="animate-spin text-ink" />
+            <p className="text-xs font-mono">Loading reference details...</p>
           </div>
         ) : isError || !entry ? (
           <div className="py-32 text-center space-y-4">
-            <p className="text-base text-ink font-medium">Entry not found</p>
+            <p className="text-base text-ink font-semibold">Reference not found</p>
             <p className="text-xs text-ink-secondary">
               {error?.message || "The requested entry does not exist or may have been deleted."}
             </p>
             <Link
               to="/"
-              className="inline-block px-4 py-2 border border-border rounded-sm text-xs font-medium text-ink hover:border-border-strong no-underline"
+              className="inline-block px-4 py-2 border border-border rounded-lg text-xs font-medium text-ink hover:border-border-strong bg-surface-elevated shadow-xs no-underline"
             >
               Return to library
             </Link>
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-fade-in">
             {/* Header info */}
-            <div className="space-y-2">
+            <div className="space-y-3">
               {isEditingTitle ? (
                 <div className="flex items-center gap-2">
                   <input
@@ -154,7 +186,7 @@ export default function EntryDetailPage() {
                       if (e.key === "Escape") setIsEditingTitle(false);
                     }}
                     autoFocus
-                    className="text-2xl font-semibold tracking-tight text-ink bg-surface-elevated border border-accent rounded px-2 py-0.5 outline-none w-full max-w-xl"
+                    className="text-2xl sm:text-3xl font-bold tracking-tight text-ink bg-surface-elevated border border-ink/40 rounded-xl px-3 py-1 outline-none w-full max-w-xl shadow-xs"
                   />
                 </div>
               ) : (
@@ -164,44 +196,54 @@ export default function EntryDetailPage() {
                     setIsEditingTitle(true);
                   }}
                   title="Click to edit title"
-                  className="text-2xl font-semibold tracking-tight text-ink hover:text-accent cursor-pointer transition-colors"
+                  className="text-2xl sm:text-3xl font-bold tracking-tight text-ink hover:text-ink/75 cursor-pointer transition-colors flex items-center gap-2.5 group"
                 >
-                  {entry.title}
+                  <span>{entry.title}</span>
+                  <span className="text-xs font-mono text-ink-tertiary opacity-0 group-hover:opacity-100 transition-opacity font-normal">
+                    (click to edit)
+                  </span>
                 </h1>
               )}
 
-              <div className="flex flex-wrap items-center gap-4 text-xs text-ink-tertiary">
+              <div className="flex flex-wrap items-center gap-3 text-xs text-ink-tertiary">
                 {entry.source_url && (
-                  <a
-                    href={entry.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-ink-secondary hover:text-accent font-mono truncate max-w-lg no-underline"
-                  >
-                    <span>{entry.source_url}</span>
-                    <ExternalLink size={12} className="shrink-0" />
-                  </a>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-elevated border border-border/80 font-mono text-ink-secondary shadow-2xs">
+                    <span>{new URL(entry.source_url).hostname.replace(/^www\./, "")}</span>
+                  </div>
                 )}
                 {createdDate && (
-                  <span className="inline-flex items-center gap-1 font-mono">
+                  <span className="inline-flex items-center gap-1.5 font-mono px-2 py-1 text-ink-tertiary">
                     <Calendar size={12} />
                     <span>Captured on {createdDate}</span>
                   </span>
                 )}
+                {entry.images && entry.images.length > 0 && (
+                  <span className="inline-flex items-center gap-1.5 font-mono px-2.5 py-1 rounded-lg bg-surface-sunken text-ink-secondary text-[11px]">
+                    <span>{entry.images.length === 1 ? "1 continuous roll" : `${entry.images.length} screens`}</span>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowAddImages((v) => !v)}
+                  className="text-xs font-medium text-ink-secondary hover:text-ink underline ml-auto cursor-pointer"
+                >
+                  {showAddImages ? "Hide screenshot upload" : "+ Add screenshots"}
+                </button>
               </div>
 
-              {/* Advisory Lines */}
+              {/* Stop reason banner if applicable */}
               {entry.stop_reason && (
-                <div className="text-xs text-amber-500 font-mono flex items-center gap-1.5 pt-1">
-                  <AlertCircle size={13} />
+                <div className="text-xs text-amber-700 bg-amber-500/10 border border-amber-500/20 px-3 py-2 rounded-xl font-mono flex items-center gap-2">
+                  <AlertCircle size={14} className="text-amber-600 shrink-0" />
                   <span>{entry.stop_reason}</span>
                 </div>
               )}
 
-              {entry.images && entry.images.length === 1 && (
-                <div className="space-y-2 pt-2 pb-1">
-                  <p className="text-xs text-ink-secondary">
-                    This page may not have captured fully. If it has an intro screen, take your own screenshots and add them here:
+              {/* Collapsible append screenshots zone */}
+              {showAddImages && (
+                <div className="p-4 bg-surface-elevated border border-border/80 rounded-2xl shadow-xs space-y-2 animate-fade-in">
+                  <p className="text-xs text-ink-secondary font-medium">
+                    Upload or append extra screenshots to this reference:
                   </p>
                   <AddImagesZone onUpload={handleUploadMoreImages} isUploading={isUploadingImages} />
                 </div>
@@ -210,7 +252,7 @@ export default function EntryDetailPage() {
 
             {/* Layout: Section images on left, Notes editor on right */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              {/* Vertical section screenshots */}
+              {/* Vertical section screenshots canvas */}
               <div className="lg:col-span-8 order-2 lg:order-1 space-y-6">
                 <SectionList
                   images={entry.images || []}
@@ -218,17 +260,10 @@ export default function EntryDetailPage() {
                   onDeleteImage={handleDeleteImage}
                   isDeletingImageId={deletingImageId}
                 />
-
-                {/* Add more images control at bottom of section list */}
-                {(!entry.images || entry.images.length !== 1) && (
-                  <div className="pt-2">
-                    <AddImagesZone onUpload={handleUploadMoreImages} isUploading={isUploadingImages} />
-                  </div>
-                )}
               </div>
 
-              {/* Notes box */}
-              <div className="lg:col-span-4 order-1 lg:order-2 lg:sticky lg:top-6">
+              {/* Notes sidebar */}
+              <div className="lg:col-span-4 order-1 lg:order-2 lg:sticky lg:top-20">
                 <NotesEditor
                   initialNotes={entry.notes}
                   onSave={async (newNotes) => {

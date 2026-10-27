@@ -154,62 +154,69 @@ export default function AddEntryBar() {
 
   return (
     <div className="w-full space-y-3">
-      {/* Top Input Bar: URL input + action button */}
-      <form onSubmit={handleSubmit} className="flex gap-3 items-center">
-        <input
-          type="text"
-          value={url}
-          onChange={(e) => {
-            setUrl(e.target.value);
-            if (error) setError(null);
-          }}
-          placeholder="Paste a URL or drop screenshots below..."
-          disabled={isPending}
-          className="flex-1 px-4 py-2.5 bg-surface-elevated border border-border text-sm text-ink
-            placeholder:text-ink-tertiary focus:outline-none focus:border-border-strong
-            rounded-sm font-sans disabled:opacity-50 transition-colors"
-        />
+      {/* Studio Command Dock */}
+      <div className="bg-surface-elevated border border-border/80 rounded-2xl shadow-sm p-1.5 sm:p-2 transition-all hover:border-border-strong focus-within:border-ink/40 focus-within:ring-2 focus-within:ring-ink/5">
+        <form onSubmit={handleSubmit} className="flex gap-2 items-center">
+          <div className="relative flex-1 flex items-center">
+            <span className="absolute left-3.5 text-ink-tertiary pointer-events-none flex items-center">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+            </span>
+            <input
+              type="text"
+              value={url}
+              onChange={(e) => {
+                setUrl(e.target.value);
+                if (error) setError(null);
+              }}
+              placeholder="Paste design URL (e.g. stripe.com or notion.com)..."
+              disabled={isPending}
+              className="w-full pl-10 pr-4 py-2.5 bg-transparent text-sm text-ink placeholder:text-ink-tertiary outline-none font-sans disabled:opacity-50"
+            />
+          </div>
 
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isPending}
-          className="px-3 py-2.5 bg-surface-elevated border border-border text-xs text-ink-secondary hover:text-ink hover:border-border-strong rounded-sm transition-colors flex items-center gap-1.5 shrink-0"
-          title="Upload or pick screenshots"
-        >
-          <Upload size={14} />
-          <span>Upload</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isPending}
+            className="px-3 py-2 text-xs font-medium text-ink-secondary hover:text-ink bg-surface-sunken hover:bg-border/60 rounded-xl transition-all flex items-center gap-1.5 shrink-0 active:scale-95"
+            title="Upload or pick screenshots"
+          >
+            <Upload size={13} className="text-ink-tertiary" />
+            <span className="hidden sm:inline">Upload</span>
+          </button>
 
-        <button
-          type="submit"
-          disabled={isPending || (!url.trim() && selectedFiles.length === 0)}
-          className="px-4 py-2.5 bg-ink text-surface text-sm font-medium
-            rounded-sm hover:bg-ink/90 disabled:opacity-30 transition-colors
-            flex items-center gap-2 shrink-0"
-        >
-          {isPending ? (
-            <>
-              <Loader2 size={14} className="animate-spin" />
-              <span className="font-mono text-xs">{elapsed}s</span>
-            </>
-          ) : (
-            <>
-              {selectedFiles.length > 0 ? "Save Entry" : "Capture"}
-              <ArrowRight size={14} />
-            </>
-          )}
-        </button>
+          <button
+            type="submit"
+            disabled={isPending || (!url.trim() && selectedFiles.length === 0)}
+            className="px-4 py-2 bg-ink text-surface text-xs font-semibold
+              rounded-xl hover:bg-ink/90 active:scale-[0.98] disabled:opacity-30 transition-all
+              flex items-center gap-2 shrink-0 shadow-xs"
+          >
+            {isPending ? (
+              <>
+                <Loader2 size={13} className="animate-spin text-surface" />
+                <span className="font-mono text-[11px]">{elapsed}s</span>
+              </>
+            ) : (
+              <>
+                <span>{selectedFiles.length > 0 ? "Save Entry" : "Capture"}</span>
+                <ArrowRight size={13} />
+              </>
+            )}
+          </button>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept="image/png,image/jpeg,image/webp"
-          onChange={handleFileSelect}
-          className="hidden"
-        />
-      </form>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/webp"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+        </form>
+      </div>
 
       {/* Drag & drop / paste dropzone & file chips */}
       <div
@@ -219,45 +226,45 @@ export default function AddEntryBar() {
         }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleFileDrop}
-        className={`border border-dashed rounded-sm p-3 transition-colors text-center text-xs ${
+        className={`border border-dashed rounded-xl px-4 py-2.5 transition-all text-center text-xs ${
           isDragging
-            ? "border-accent bg-accent-light/10 text-ink"
-            : "border-border hover:border-border-strong bg-surface/50 text-ink-tertiary"
+            ? "border-accent-blue bg-blue-50/50 text-ink scale-[1.01]"
+            : "border-border/70 hover:border-border-strong bg-surface-elevated/40 text-ink-tertiary"
         }`}
       >
         {selectedFiles.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 py-1">
-            <ImageIcon size={14} />
-            <span>
-              Drag & drop screenshots here, or paste directly with{" "}
-              <kbd className="font-mono text-[11px] bg-surface-elevated border border-border px-1 py-0.5 rounded">
+          <div className="flex items-center justify-center gap-2 py-0.5">
+            <ImageIcon size={13} className="text-ink-tertiary" />
+            <span className="text-[11px]">
+              Or drop local screenshots here • Paste anywhere with{" "}
+              <kbd className="font-mono text-[10px] bg-surface-elevated border border-border/80 px-1.5 py-0.5 rounded-md shadow-2xs text-ink-secondary">
                 Ctrl+V
               </kbd>
             </span>
           </div>
         ) : (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs text-ink-secondary pb-1 border-b border-border">
-              <span>{selectedFiles.length} screenshot(s) ready</span>
+          <div className="space-y-2 py-0.5">
+            <div className="flex items-center justify-between text-xs text-ink-secondary pb-1 border-b border-border/60">
+              <span className="font-medium text-ink">{selectedFiles.length} screenshot(s) selected</span>
               <button
                 type="button"
                 onClick={() => setSelectedFiles([])}
-                className="text-danger hover:underline text-[11px]"
+                className="text-danger hover:underline text-[11px] font-medium"
               >
                 Clear all
               </button>
             </div>
-            <div className="flex flex-wrap gap-2 pt-1 max-h-32 overflow-y-auto">
+            <div className="flex flex-wrap gap-1.5 pt-0.5 max-h-28 overflow-y-auto">
               {selectedFiles.map((file, idx) => (
                 <div
                   key={`${file.name}-${idx}`}
-                  className="flex items-center gap-1.5 px-2 py-1 bg-surface-elevated border border-border rounded text-[11px] text-ink font-mono"
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-surface-elevated border border-border/80 rounded-lg text-[11px] text-ink font-mono shadow-2xs"
                 >
-                  <span className="truncate max-w-[140px]">{file.name}</span>
+                  <span className="truncate max-w-[150px]">{file.name}</span>
                   <button
                     type="button"
                     onClick={() => removeFile(idx)}
-                    className="text-ink-tertiary hover:text-danger"
+                    className="text-ink-tertiary hover:text-danger ml-0.5"
                   >
                     <X size={12} />
                   </button>
@@ -270,12 +277,12 @@ export default function AddEntryBar() {
 
       {/* Error & Recapture Banner */}
       {error && (
-        <div className="flex items-start gap-2 text-xs">
-          <p className="text-danger">{error}</p>
+        <div className="flex items-center justify-between p-3 rounded-xl bg-danger-light border border-danger/20 text-xs animate-fade-in">
+          <p className="text-danger font-medium">{error}</p>
           {isDuplicate && (
             <button
               onClick={() => recaptureMutation.mutate(url.trim())}
-              className="text-accent hover:underline shrink-0 text-xs font-medium"
+              className="px-2.5 py-1 bg-surface-elevated border border-danger/30 text-danger hover:bg-danger hover:text-white rounded-lg text-xs font-medium transition-colors shrink-0 shadow-2xs"
             >
               Re-capture and overwrite
             </button>
