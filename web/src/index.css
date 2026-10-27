@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+/* Tailwind CSS v4 Theme Configuration */
 @theme {
   /* Studio archival palette */
   --color-surface: #F8F9FA;
