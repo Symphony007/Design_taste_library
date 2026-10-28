@@ -164,7 +164,7 @@ export async function downloadExport(options: ExportOptions): Promise<void> {
   const blobUrl = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = blobUrl;
-  a.download = "taste-skill.zip";
+  a.download = "specimen-skill.zip";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

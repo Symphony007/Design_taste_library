@@ -100,10 +100,10 @@ export default function EntryCard({
           />
           <div className="absolute inset-0 ring-1 ring-inset ring-black/5 pointer-events-none rounded-t-2xl" />
 
-          {/* Screen count / roll badge */}
+          {/* Screen count badge */}
           <div className="absolute bottom-2.5 right-2.5 z-10 px-2 py-0.5 rounded-md bg-surface/85 backdrop-blur-md border border-border/60 text-[10px] font-mono text-ink-secondary shadow-2xs flex items-center gap-1">
             <Layers size={10} className="text-ink-tertiary" />
-            <span>{imagesCount} {imagesCount === 1 ? "roll" : "screens"}</span>
+            <span>{imagesCount} {imagesCount === 1 ? "screen" : "screens"}</span>
           </div>
         </div>
 

@@ -94,7 +94,7 @@ export default function EntryDetailPage() {
   const [showAddImages, setShowAddImages] = useState(false);
 
   return (
-    <div className="min-h-screen flex flex-col bg-surface text-ink">
+    <div className="min-h-screen flex flex-col text-ink relative z-10">
       <Header />
 
       <main className="flex-1 mx-auto max-w-7xl w-full px-6 py-6 space-y-6">
@@ -132,7 +132,7 @@ export default function EntryDetailPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border/80 rounded-lg bg-surface-elevated hover:bg-surface hover:border-border-strong text-ink shadow-2xs transition-all"
-                  title="Open full resolution roll"
+                  title="Open full resolution image"
                 >
                   <span>Full image</span>
                 </a>
@@ -219,7 +219,7 @@ export default function EntryDetailPage() {
                 )}
                 {entry.images && entry.images.length > 0 && (
                   <span className="inline-flex items-center gap-1.5 font-mono px-2.5 py-1 rounded-lg bg-surface-sunken text-ink-secondary text-[11px]">
-                    <span>{entry.images.length === 1 ? "1 continuous roll" : `${entry.images.length} screens`}</span>
+                    <span>{entry.images.length} {entry.images.length === 1 ? "screen" : "screens"}</span>
                   </span>
                 )}
                 <button

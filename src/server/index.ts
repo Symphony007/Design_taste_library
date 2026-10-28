@@ -52,7 +52,7 @@ if (isProduction) {
 } else {
   // Friendly response in dev (even after web/dist has been built)
   app.get("/", (_req: Request, res: Response) => {
-    res.type("text/plain").send("Taste API is running. Open http://localhost:5173 for the app.");
+    res.type("text/plain").send("Specimen API is running. Open http://localhost:5173 for the app.");
   });
 }
 
@@ -313,7 +313,7 @@ app.post("/api/export", async (req: Request, res: Response) => {
       directionNotes,
     });
 
-    res.attachment("taste-skill.zip");
+    res.attachment("specimen-skill.zip");
     res.setHeader("Content-Type", "application/zip");
     if (warnings.length > 0) {
       res.setHeader("X-Export-Warnings", encodeURIComponent(JSON.stringify(warnings)));
@@ -375,6 +375,6 @@ app.use((err: any, _req: Request, res: Response, _next: express.NextFunction) =>
 });
 
 app.listen(PORT, () => {
-  console.log(`Taste server running at http://localhost:${PORT}`);
+  console.log(`Specimen server running at http://localhost:${PORT}`);
 });
 

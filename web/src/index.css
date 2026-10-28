@@ -36,10 +36,36 @@ body {
   margin: 0;
   min-height: 100dvh;
   background-color: var(--color-surface);
-  background-image: 
-    radial-gradient(at 100% 0%, rgba(240, 243, 246, 0.7) 0px, transparent 50%),
-    radial-gradient(at 0% 100%, rgba(243, 244, 246, 0.6) 0px, transparent 50%);
-  background-attachment: fixed;
+  color: var(--color-ink);
+  position: relative;
+}
+
+/* Studio Fading Architectural Dotted Grid */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: radial-gradient(circle, rgba(15, 23, 42, 0.085) 1.25px, transparent 1.25px);
+  background-size: 24px 24px;
+  background-position: 0 0;
+  mask-image: radial-gradient(ellipse 95% 70% at 50% 0%, #000 25%, transparent 85%);
+  -webkit-mask-image: radial-gradient(ellipse 95% 70% at 50% 0%, #000 25%, transparent 85%);
+}
+
+/* Subtle top ambient glow */
+body::after {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100vw;
+  height: 450px;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(255, 255, 255, 0.75) 0%, transparent 100%);
 }
 
 /* Image behavior */

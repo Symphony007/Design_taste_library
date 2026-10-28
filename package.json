@@ -1,8 +1,8 @@
 {
-  "name": "taste",
+  "name": "specimen",
   "version": "0.1.0",
   "private": true,
-  "description": "Taste - A personal design-reference library",
+  "description": "Specimen - A personal design-reference library",
   "type": "module",
   "scripts": {
     "dev:all": "concurrently -k -n \"api,web\" -c \"blue,magenta\" --prefix \"[{name}]\" \"npm run dev\" \"npm --prefix web run dev\"",

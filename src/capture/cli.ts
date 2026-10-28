@@ -12,7 +12,7 @@ async function main() {
   }
 
   console.log(`\n========================================`);
-  console.log(` Taste - Website Section Capture`);
+  console.log(` Specimen - Website Section Capture`);
   console.log(` Target: ${targetUrl}`);
   console.log(`========================================\n`);
 

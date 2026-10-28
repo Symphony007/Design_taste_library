@@ -1,4 +1,4 @@
-# Taste
+# Specimen
 
 A local tool for UI designers to collect websites they admire as clean section screenshots plus notes, and export the library as a ready-to-use **Claude Agent Skill** so coding agents generate tasteful, distinctive interfaces instead of generic templates.
 
@@ -6,7 +6,7 @@ A local tool for UI designers to collect websites they admire as clean section s
 
 ## What It Is
 
-When AI coding agents design web interfaces, they often fall back on generic templates, harsh gradients, or cliché card layouts. **Taste** allows you to:
+When AI coding agents design web interfaces, they often fall back on generic templates, harsh gradients, or cliché card layouts. **Specimen** allows you to:
 1. **Curate reference websites**: Capture sites automatically section-by-section, or bring your own screenshots via drag-and-drop, clipboard paste, or file upload.
 2. **Annotate with design rationale**: Write short notes highlighting what makes each design exceptional (typography, spacing, layout, color palette).
 3. **Export as an AI agent skill**: Generate a structured `designer-taste-library` folder in Claude skill format that any AI coding agent can read to guide its UI generation.

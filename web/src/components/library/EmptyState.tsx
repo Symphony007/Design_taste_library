@@ -10,7 +10,7 @@ export default function EmptyState() {
         Your reference library is empty
       </p>
       <p className="text-xs text-ink-secondary leading-relaxed max-w-xs mx-auto">
-        Paste a URL above to capture clean continuous rolling screenshots, or drop files to build your archive.
+        Paste a URL above to capture clean section screenshots, or drop files to build your archive.
       </p>
     </div>
   );

@@ -37,7 +37,7 @@ export default function SectionList({
           </span>
         </div>
         <div className="flex items-center gap-2 text-[11px] font-mono">
-          <span>{sorted.length} {sorted.length === 1 ? "continuous roll" : "sections"}</span>
+          <span>{sorted.length} {sorted.length === 1 ? "section" : "sections"}</span>
         </div>
       </div>
 

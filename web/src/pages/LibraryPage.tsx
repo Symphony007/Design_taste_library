@@ -90,9 +90,8 @@ export default function LibraryPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-surface text-ink relative pb-28">
+    <div className="min-h-screen flex flex-col text-ink relative z-10 pb-28">
       <Header
-        entryCount={entries.length}
         onExportClick={() => handleOpenExport(selectedIds.size > 0 ? "selected" : "all")}
       />
 
